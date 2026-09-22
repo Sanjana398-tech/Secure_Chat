@@ -11,7 +11,8 @@ import { nanoid } from "@/lib/utils"
  *   file — the attachment (image or audio)
  *   kind — "image" | "voice"
  *
- * Returns { data: { url, filename } } where url points at the public Blob object.
+ * Returns { data: { url, filename } } where url points at the authenticated
+ * file proxy.
  */
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024 // 8 MB
@@ -71,13 +72,13 @@ export async function POST(request: NextRequest) {
 
     // Use a generated, unguessable filename instead of the user's original name.
     const filename = `${nanoid()}.${ext}`
-    const blob = await put(filename, file, {
-      access: "public",
+    await put(filename, file, {
+      access: "private",
       contentType: file.type || undefined,
     })
 
     return NextResponse.json(
-      { data: { url: blob.url, filename } },
+      { data: { url: `/api/files/${filename}`, filename } },
       { status: 201 },
     )
   } catch (err) {
