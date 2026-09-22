@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir, writeFile } from "fs/promises"
-import path from "path"
+import { put } from "@vercel/blob"
 import { getUserId } from "@/lib/auth-utils"
 import { nanoid } from "@/lib/utils"
 
@@ -12,12 +11,8 @@ import { nanoid } from "@/lib/utils"
  *   file — the attachment (image or audio)
  *   kind — "image" | "voice"
  *
- * Returns { data: { url, filename } } where url points at /api/files/<filename>.
- * Files are stored on local disk in <project>/uploads and are only served
- * to authenticated users.
+ * Returns { data: { url, filename } } where url points at the public Blob object.
  */
-
-const UPLOADS_DIR = path.join(process.cwd(), "uploads")
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024 // 8 MB
 // Keep under Trinetra AI's Flask MAX_CONTENT_LENGTH (default 10 MB) so the
@@ -74,16 +69,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File is empty" }, { status: 400 })
     }
 
-    // Save with a generated, unguessable filename (never the user's original name)
-    await mkdir(UPLOADS_DIR, { recursive: true })
+    // Use a generated, unguessable filename instead of the user's original name.
     const filename = `${nanoid()}.${ext}`
-    await writeFile(
-      path.join(UPLOADS_DIR, filename),
-      Buffer.from(await file.arrayBuffer()),
-    )
+    const blob = await put(filename, file, {
+      access: "public",
+      contentType: file.type || undefined,
+    })
 
     return NextResponse.json(
-      { data: { url: `/api/files/${filename}`, filename } },
+      { data: { url: blob.url, filename } },
       { status: 201 },
     )
   } catch (err) {
