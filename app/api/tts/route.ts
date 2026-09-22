@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import * as fs from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import path from "node:path"
@@ -30,7 +29,7 @@ function getPythonCommand(): string {
   return existsSync(projectVenvPython) ? projectVenvPython : "python"
 }
 
-function synthesizeWithEdgeTts(text: string, voiceName: string, outputPath: string): Promise<void> {
+function synthesizeWithEdgeTts(text: string, voiceName: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const process = spawn(getPythonCommand(), [
       "-m",
@@ -40,17 +39,21 @@ function synthesizeWithEdgeTts(text: string, voiceName: string, outputPath: stri
       "--text",
       text,
       "--write-media",
-      outputPath,
+      "-",
     ])
+    const audioChunks: Buffer[] = []
     let errorOutput = ""
 
+    process.stdout.on("data", (chunk: Buffer) => {
+      audioChunks.push(chunk)
+    })
     process.stderr.on("data", (chunk: Buffer) => {
       errorOutput += chunk.toString()
     })
     process.on("error", reject)
     process.on("close", (code) => {
       if (code === 0) {
-        resolve()
+        resolve(Buffer.concat(audioChunks))
         return
       }
       reject(new Error(errorOutput.trim() || `Edge TTS exited with code ${code ?? "unknown"}.`))
@@ -59,7 +62,6 @@ function synthesizeWithEdgeTts(text: string, voiceName: string, outputPath: stri
 }
 
 export async function POST(request: Request) {
-  let outputPath: string | undefined
   try {
     const body = (await request.json()) as { text?: string; language?: LanguageCode }
     const language = body.language ?? "en"
@@ -77,16 +79,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const tempDir = path.join(process.cwd(), "tmp")
-    await fs.mkdir(tempDir, { recursive: true })
-    outputPath = path.join(
-      tempDir,
-      `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`,
-    )
-
-    await synthesizeWithEdgeTts(text, voiceName, outputPath)
-
-    const audioBytes = await fs.readFile(outputPath)
+    const audioBytes = await synthesizeWithEdgeTts(text, voiceName)
 
     if (audioBytes.length === 0) {
       return NextResponse.json({ error: "The TTS service returned no audio." }, { status: 500 })
@@ -104,7 +97,5 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : "Edge TTS request failed." },
       { status: 502 },
     )
-  } finally {
-    if (outputPath) await fs.unlink(outputPath).catch(() => undefined)
   }
 }
