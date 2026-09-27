@@ -147,6 +147,7 @@ export async function getUserConversations(userId: string): Promise<Conversation
             ...lastMessages[0],
             trinetraDetectedUrls: JSON.parse(lastMessages[0].trinetraDetectedUrls ?? "[]"),
             trinetraReasons: JSON.parse(lastMessages[0].trinetraReasons ?? "[]"),
+            trinetraTips: JSON.parse(lastMessages[0].trinetraTips ?? "[]"),
           } as unknown as Conversation["lastMessage"])
         : null,
       unreadCount: unreadResult[0]?.count ?? 0,

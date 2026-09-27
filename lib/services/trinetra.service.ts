@@ -58,6 +58,8 @@ interface TrinetraApiResponse {
   verdict?: string
   prediction?: string
   confidence?: number
+  risk?: number
+  tips?: string[]
   safe_probability?: number | null
   scam_probability?: number | null
   transcription?: string
@@ -122,7 +124,10 @@ function normalizeLanguage(value: string | null | undefined): string | null {
   return language || null
 }
 
-function toResult(data: TrinetraApiResponse): TrinetraAnalysisResult | null {
+function toResult(
+  data: TrinetraApiResponse,
+  detectionType: TrinetraAnalysisResult["detectionType"] = "message",
+): TrinetraAnalysisResult | null {
   if (!data.success || (!data.verdict && !data.prediction)) return null
   const prediction = (data.verdict ?? data.prediction ?? "").trim().toUpperCase()
   const normalizedPrediction =
@@ -137,10 +142,14 @@ function toResult(data: TrinetraApiResponse): TrinetraAnalysisResult | null {
     return null
   }
   return {
+    detectionType,
     prediction: normalizedPrediction,
     confidence: data.confidence ?? 0,
+    risk: data.risk ?? data.scam_probability ?? null,
     safeProbability: data.safe_probability ?? null,
     scamProbability: data.scam_probability ?? null,
+    explanation: collectReasons(data).join(" ") || null,
+    tips: data.tips ?? [],
     ocrText: data.ocr_text ?? data.extracted_text ?? data.text ?? null,
     detectedUrls: data.detected_urls ?? data.urls ?? [],
     qrContent:
@@ -231,7 +240,7 @@ export async function analyzeMessage(
     },
     TRINETRA_TIMEOUT_MS,
   )
-  return data ? toResult(data) : null
+  return data ? toResult(data, "message") : null
 }
 
 // ─── 2. URL analysis (phishing / malicious-link detection) ──────────────────
@@ -254,7 +263,7 @@ export async function analyzeUrl(
     },
     TRINETRA_TIMEOUT_MS,
   )
-  return data ? toResult(data) : null
+  return data ? toResult(data, "url") : null
 }
 
 // ─── 3. Image analysis (OCR + payment fraud / text scan) ────────────────────
@@ -279,7 +288,7 @@ export async function analyzeImage(
   )
   if (!data) return null
 
-  const screenshotResult = toResult(data)
+  const screenshotResult = toResult(data, "message")
   const extractedText = data.ocr_text ?? data.extracted_text ?? data.text
 
   // OCR text must use the same text model and preprocessing as normal chat text.
@@ -320,7 +329,7 @@ export async function analyzeVoice(
   )
   if (!data) return { result: null, transcription: null }
   return {
-    result: toResult(data),
+    result: toResult(data, "message"),
     transcription: data.transcription ?? null,
   }
 }
@@ -349,5 +358,5 @@ export async function analyzeUpi(
     },
     TRINETRA_TIMEOUT_MS,
   )
-  return data ? toResult(data) : null
+  return data ? toResult(data, "upi") : null
 }

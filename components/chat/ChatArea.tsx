@@ -216,6 +216,11 @@ export default function ChatArea({
         trinetraReasons: [],
         trinetraLanguage: null,
         trinetraSpeechText: null,
+        trinetraDetectionType: null,
+        trinetraRisk: null,
+        trinetraExplanation: null,
+        trinetraTips: [],
+        trinetraUnavailable: false,
       }
       setMessages((prev) => [...prev, optimistic])
 

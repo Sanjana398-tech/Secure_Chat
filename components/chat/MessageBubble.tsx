@@ -6,7 +6,6 @@ import {
   getSpeechAlert,
   type LanguageCode,
 } from "@/lib/localization"
-import { getFlaggedExplanation } from "@/lib/xai"
 import { speakDetectionAlert, speakResultMessage } from "@/lib/tts"
 import {
   Check,
@@ -101,9 +100,10 @@ export default function MessageBubble({
     localizedPrediction === "SCAM" || localizedPrediction === "SUSPICIOUS"
       ? localizedPrediction
       : null
-  const flaggedExplanation = flaggedPrediction
-    ? getFlaggedExplanation(message, language, flaggedPrediction)
-    : null
+  const flaggedDetails = [...new Set([
+    ...(message.trinetraExplanation ? [message.trinetraExplanation] : []),
+    ...message.trinetraReasons,
+  ])]
 
   function speakText(text: string, voiceLanguage: LanguageCode) {
     setIsSpeaking(true)
@@ -121,8 +121,9 @@ export default function MessageBubble({
   }
 
   function speakExplanation() {
-    if (!flaggedExplanation) return
-    speakText(flaggedExplanation.speechText, language)
+    const explanation = flaggedDetails.join(" ")
+    if (!explanation) return
+    speakText(explanation, language)
   }
 
   // Clear any stale TTS error when the user changes language
@@ -161,7 +162,8 @@ export default function MessageBubble({
             <span className="flex items-center gap-0.5 text-[10px] text-emerald-400 select-none">
               <ShieldCheck className="size-3" />
               {localizedPrediction && copy.result[localizedPrediction]}
-              {confidence != null && ` · ${copy.riskScore}: ${confidence.toFixed(2)}%`}
+              {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
+              {message.trinetraRisk != null && ` · Risk ${message.trinetraRisk.toFixed(2)}%`}
               <button
                 type="button"
                 onClick={replayAlert}
@@ -178,7 +180,8 @@ export default function MessageBubble({
             <span className="flex items-center gap-0.5 text-[10px] text-amber-300 select-none">
               <ShieldAlert className="size-3" />
               {localizedPrediction && copy.result[localizedPrediction]}
-              {confidence != null && ` · ${copy.riskScore}: ${confidence.toFixed(2)}%`}
+              {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
+              {message.trinetraRisk != null && ` · Risk ${message.trinetraRisk.toFixed(2)}%`}
               <button
                 type="button"
                 onClick={replayAlert}
@@ -195,7 +198,8 @@ export default function MessageBubble({
             <span className="flex items-center gap-0.5 text-[10px] text-red-300 select-none">
               <ShieldAlert className="size-3" />
               {localizedPrediction && copy.result[localizedPrediction]}
-              {confidence != null && ` · ${copy.riskScore}: ${confidence.toFixed(2)}%`}
+              {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
+              {message.trinetraRisk != null && ` · Risk ${message.trinetraRisk.toFixed(2)}%`}
               <button
                 type="button"
                 onClick={replayAlert}
@@ -221,6 +225,11 @@ export default function MessageBubble({
             </span>
           )}
         </div>
+        {message.trinetraUnavailable && !isTemp && (
+          <p className="text-[10px] text-amber-400/90" role="status">
+            Trinetra protection unavailable
+          </p>
+        )}
         {/* TTS language-unavailable notice shown for all message states so users
             know why a selected-language read-aloud did not start. */}
         {ttsError && (
@@ -265,25 +274,37 @@ export default function MessageBubble({
                 {whyCopy.detectedTitle[flaggedPrediction]}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowWhy((open) => !open)}
-              className={`mb-1 inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-bold ${
-                isScam
-                  ? "bg-red-500/25 text-red-100 hover:bg-red-500/40"
-                  : "bg-amber-500/25 text-amber-50 hover:bg-amber-500/40"
-              }`}
-              aria-expanded={showWhy}
-            >
-              {whyCopy.whyButton}
-            </button>
-            {showWhy && flaggedExplanation && (
+            <p className="mb-1 text-[10px] opacity-80">
+              {message.trinetraDetectionType?.toUpperCase() ?? "MESSAGE"}
+              {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
+              {message.trinetraRisk != null && ` · ${message.trinetraRisk.toFixed(2)}% risk`}
+            </p>
+            {flaggedDetails.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowWhy((open) => !open)}
+                className={`mb-1 inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-bold ${
+                  isScam
+                    ? "bg-red-500/25 text-red-100 hover:bg-red-500/40"
+                    : "bg-amber-500/25 text-amber-50 hover:bg-amber-500/40"
+                }`}
+                aria-expanded={showWhy}
+              >
+                {whyCopy.whyButton}
+              </button>
+            )}
+            {showWhy && flaggedDetails.length > 0 && (
               <div className={`mt-2 space-y-2 ${isScam ? "text-red-200" : "text-amber-100"}`}>
                 <ul className="list-disc space-y-1 pl-4 text-[11px] leading-snug">
-                  {flaggedExplanation.lines.map((line) => (
+                  {flaggedDetails.map((line) => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
+                {message.trinetraTips.length > 0 && (
+                  <ul className="list-disc space-y-1 pl-4 text-[11px] leading-snug opacity-90">
+                    {message.trinetraTips.map((tip) => <li key={tip}>{tip}</li>)}
+                  </ul>
+                )}
                 <button
                   type="button"
                   onClick={speakExplanation}
@@ -473,6 +494,26 @@ export default function MessageBubble({
               <MetaRow />
             </div>
           )}
+
+        {localizedPrediction === "SAFE" && isAnalyzed && message.trinetraDetectionType && (
+          <div className="max-w-full border-l-2 border-emerald-500/40 pl-2 text-[10px] text-muted-foreground">
+            <p>
+              {message.trinetraDetectionType.toUpperCase()} detection
+              {message.trinetraRisk != null && ` · ${message.trinetraRisk.toFixed(2)}% risk`}
+            </p>
+            {message.trinetraExplanation && <p className="mt-0.5">{message.trinetraExplanation}</p>}
+            {message.trinetraReasons.length > 0 && (
+              <ul className="mt-0.5 list-disc pl-4">
+                {message.trinetraReasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+            )}
+            {message.trinetraTips.length > 0 && (
+              <ul className="mt-0.5 list-disc pl-4">
+                {message.trinetraTips.map((tip) => <li key={tip}>{tip}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* ── SAFE verification sub-line ──────────────────────────────── */}
         {isSafe && isAnalyzed && (

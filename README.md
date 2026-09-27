@@ -1,5 +1,21 @@
 # Secure Chat
 
+## Trinetra AI Protection
+
+Protection is disabled for each account until its owner enables it in the chat sidebar and completes Trinetra's consent flow. Secure Chat binds the one-time OAuth state to the authenticated user, exchanges the code on the server, and stores the short-lived account token encrypted with AES-256-GCM. Turning protection off immediately clears the local token and pending state. Only text, URL, and UPI/payment message content is sent; attachment and voice messages continue through Secure Chat without Trinetra analysis.
+
+Configure these server-side variables in local `.env.local` and the Vercel project settings. Do not prefix any of them with `NEXT_PUBLIC_`:
+
+| Variable | Purpose |
+| --- | --- |
+| `TRINETRA_BASE_URL` | `https://trinetra-ai-ua5e.onrender.com` |
+| `TRINETRA_SECURE_CHAT_API_KEY` | Server-to-server integration key issued by Trinetra |
+| `TRINETRA_REDIRECT_URI` | `https://<Secure Chat domain>/api/integrations/trinetra/callback` |
+| `TRINETRA_TOKEN_ENCRYPTION_KEY` | Base64-encoded 32-byte key (or 64 hex characters) for token encryption at rest |
+| `TRINETRA_TIMEOUT_MS` | Optional provider timeout; defaults to `10000` |
+
+For local development, set the redirect URI to `http://localhost:3000/api/integrations/trinetra/callback` and register that exact URI with Trinetra. After deploying the schema changes, run `pnpm db:push` with the unpooled database URL configured. Provider outages and invalid responses never block message delivery; the affected message displays a small unavailable status instead of a fabricated result.
+
 ## Folder Structure
 
 ```text

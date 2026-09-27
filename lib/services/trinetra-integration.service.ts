@@ -1,0 +1,434 @@
+import "server-only"
+
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "crypto"
+import { and, eq, gt } from "drizzle-orm"
+import { db } from "@/lib/db"
+import { trinetraIntegration } from "@/lib/db/schema"
+import type { TrinetraAnalysisResult } from "@/types"
+
+const DEFAULT_BASE_URL = "https://trinetra-ai-ua5e.onrender.com"
+const STATE_TTL_MS = 10 * 60 * 1000
+const MAX_TOKEN_TTL_SECONDS = 24 * 60 * 60
+const MAX_CONTENT_LENGTH = 4000
+const MAX_REASON_COUNT = 20
+const MAX_TEXT_LENGTH = 1000
+
+type DetectionType = TrinetraAnalysisResult["detectionType"]
+
+interface TokenResponse {
+  access_token?: unknown
+  account_token?: unknown
+  expires_in?: unknown
+  expires_at?: unknown
+  account_id?: unknown
+  error?: unknown
+}
+
+interface DetectionResponse {
+  success?: unknown
+  result?: unknown
+  data?: unknown
+  verdict?: unknown
+  prediction?: unknown
+  confidence?: unknown
+  risk?: unknown
+  risk_score?: unknown
+  explanation?: unknown
+  reasons?: unknown
+  tips?: unknown
+  type?: unknown
+  detection_type?: unknown
+  error?: unknown
+}
+
+function getConfig() {
+  const baseUrl = (process.env.TRINETRA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "")
+  const apiKey = process.env.TRINETRA_SECURE_CHAT_API_KEY?.trim()
+  const redirectUri = process.env.TRINETRA_REDIRECT_URI?.trim()
+
+  if (!apiKey || !redirectUri) {
+    throw new Error("Trinetra integration is not configured")
+  }
+
+  const base = new URL(baseUrl)
+  if (base.protocol !== "https:" && process.env.NODE_ENV === "production") {
+    throw new Error("TRINETRA_BASE_URL must use HTTPS in production")
+  }
+
+  const callback = new URL(redirectUri)
+  if (callback.protocol !== "https:" && process.env.NODE_ENV === "production") {
+    throw new Error("TRINETRA_REDIRECT_URI must use HTTPS in production")
+  }
+
+  return { baseUrl, apiKey, redirectUri }
+}
+
+function getEncryptionKey(): Buffer {
+  const encoded = process.env.TRINETRA_TOKEN_ENCRYPTION_KEY?.trim()
+  if (!encoded) throw new Error("Trinetra token encryption is not configured")
+
+  const key = /^[a-f0-9]{64}$/i.test(encoded)
+    ? Buffer.from(encoded, "hex")
+    : Buffer.from(encoded, "base64")
+  if (key.length !== 32) {
+    throw new Error("TRINETRA_TOKEN_ENCRYPTION_KEY must encode exactly 32 bytes")
+  }
+  return key
+}
+
+function encryptToken(token: string): string {
+  const iv = randomBytes(12)
+  const cipher = createCipheriv("aes-256-gcm", getEncryptionKey(), iv)
+  const ciphertext = Buffer.concat([cipher.update(token, "utf8"), cipher.final()])
+  return [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString("base64url")).join(".")
+}
+
+function decryptToken(encrypted: string): string {
+  const [ivText, tagText, ciphertextText, extra] = encrypted.split(".")
+  if (!ivText || !tagText || !ciphertextText || extra) throw new Error("Stored Trinetra token is invalid")
+
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    getEncryptionKey(),
+    Buffer.from(ivText, "base64url"),
+  )
+  decipher.setAuthTag(Buffer.from(tagText, "base64url"))
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextText, "base64url")),
+    decipher.final(),
+  ]).toString("utf8")
+}
+
+function hashState(state: string): string {
+  return createHash("sha256").update(state).digest("hex")
+}
+
+function constantTimeHexEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, "hex")
+  const rightBuffer = Buffer.from(right, "hex")
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function isUsableLink(row: typeof trinetraIntegration.$inferSelect | undefined): boolean {
+  return Boolean(
+    row?.enabled &&
+      row.encryptedAccessToken &&
+      row.accessTokenExpiresAt &&
+      row.accessTokenExpiresAt.getTime() > Date.now(),
+  )
+}
+
+export async function getTrinetraProtectionStatus(userId: string) {
+  const [row] = await db
+    .select()
+    .from(trinetraIntegration)
+    .where(eq(trinetraIntegration.userId, userId))
+    .limit(1)
+
+  return {
+    enabled: row?.enabled ?? false,
+    linked: isUsableLink(row),
+    pending: Boolean(row?.enabled && row.pendingStateExpiresAt && row.pendingStateExpiresAt > new Date()),
+  }
+}
+
+export async function beginTrinetraAuthorization(userId: string) {
+  const { baseUrl, redirectUri } = getConfig()
+  const [existing] = await db
+    .select()
+    .from(trinetraIntegration)
+    .where(eq(trinetraIntegration.userId, userId))
+    .limit(1)
+
+  if (isUsableLink(existing)) return { linked: true as const, authorizationUrl: null }
+
+  const state = randomBytes(32).toString("base64url")
+  const pendingStateExpiresAt = new Date(Date.now() + STATE_TTL_MS)
+  await db
+    .insert(trinetraIntegration)
+    .values({
+      userId,
+      enabled: true,
+      encryptedAccessToken: null,
+      accessTokenExpiresAt: null,
+      linkedAccountId: null,
+      pendingStateHash: hashState(state),
+      pendingStateExpiresAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: trinetraIntegration.userId,
+      set: {
+        enabled: true,
+        encryptedAccessToken: null,
+        accessTokenExpiresAt: null,
+        linkedAccountId: null,
+        pendingStateHash: hashState(state),
+        pendingStateExpiresAt,
+        updatedAt: new Date(),
+      },
+    })
+
+  const authorizationUrl = new URL(`${baseUrl}/integrations/secure-chat/authorize`)
+  authorizationUrl.searchParams.set("response_type", "code")
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri)
+  authorizationUrl.searchParams.set("state", state)
+  return { linked: false as const, authorizationUrl: authorizationUrl.toString() }
+}
+
+export async function disableTrinetraProtection(userId: string): Promise<void> {
+  await db
+    .insert(trinetraIntegration)
+    .values({ userId, enabled: false, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: trinetraIntegration.userId,
+      set: {
+        enabled: false,
+        encryptedAccessToken: null,
+        accessTokenExpiresAt: null,
+        linkedAccountId: null,
+        pendingStateHash: null,
+        pendingStateExpiresAt: null,
+        updatedAt: new Date(),
+      },
+    })
+}
+
+export async function cancelTrinetraAuthorization(userId: string, state: string): Promise<void> {
+  if (state.length < 32 || state.length > 256) throw new Error("Invalid authorization state")
+  const stateHash = hashState(state)
+  const now = new Date()
+  const [cancelled] = await db
+    .update(trinetraIntegration)
+    .set({ pendingStateHash: null, pendingStateExpiresAt: null, updatedAt: now })
+    .where(and(
+      eq(trinetraIntegration.userId, userId),
+      eq(trinetraIntegration.enabled, true),
+      eq(trinetraIntegration.pendingStateHash, stateHash),
+      gt(trinetraIntegration.pendingStateExpiresAt, now),
+    ))
+    .returning({ userId: trinetraIntegration.userId })
+  if (!cancelled) throw new Error("Authorization state mismatch")
+}
+
+async function requestJson(
+  url: string,
+  init: RequestInit,
+  requestTimeoutMs: number,
+): Promise<{ ok: boolean; status: number; body: Record<string, unknown> | null }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" })
+    const text = await response.text()
+    if (text.length > 64 * 1024) return { ok: false, status: response.status, body: null }
+    let body: unknown
+    try {
+      body = JSON.parse(text)
+    } catch {
+      return { ok: false, status: response.status, body: null }
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: body && typeof body === "object" && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : null,
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function requestTimeout(): number {
+  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 10_000)
+  return Number.isFinite(configured) ? Math.max(1000, Math.min(configured, 30_000)) : 10_000
+}
+
+export async function completeTrinetraAuthorization(
+  userId: string,
+  state: string,
+  code: string,
+): Promise<void> {
+  if (state.length < 32 || state.length > 256) throw new Error("Invalid authorization state")
+  if (!code.trim() || code.length > 4096) throw new Error("Invalid authorization code")
+
+  const stateHash = hashState(state)
+  const [pending] = await db
+    .select({ pendingStateHash: trinetraIntegration.pendingStateHash })
+    .from(trinetraIntegration)
+    .where(eq(trinetraIntegration.userId, userId))
+    .limit(1)
+  if (!pending?.pendingStateHash || !constantTimeHexEqual(pending.pendingStateHash, stateHash)) {
+    throw new Error("Authorization state mismatch")
+  }
+
+  const now = new Date()
+  const [consumed] = await db
+    .update(trinetraIntegration)
+    .set({ pendingStateHash: null, pendingStateExpiresAt: null, updatedAt: now })
+    .where(and(
+      eq(trinetraIntegration.userId, userId),
+      eq(trinetraIntegration.enabled, true),
+      eq(trinetraIntegration.pendingStateHash, stateHash),
+      gt(trinetraIntegration.pendingStateExpiresAt, now),
+    ))
+    .returning({ userId: trinetraIntegration.userId })
+  if (!consumed) throw new Error("Authorization state expired or already used")
+
+  const { baseUrl, apiKey, redirectUri } = getConfig()
+  const response = await requestJson(
+    `${baseUrl}/api/secure-chat/v1/token`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Secure-Chat-Key": apiKey,
+      },
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    },
+    requestTimeout(),
+  )
+  const tokenResponse = response.body as TokenResponse | null
+  const token = tokenResponse?.access_token ?? tokenResponse?.account_token
+  const expiresIn = Number(tokenResponse?.expires_in)
+  if (!response.ok || !tokenResponse || typeof token !== "string" || token.length < 16 || token.length > 8192) {
+    throw new Error("Trinetra authorization exchange failed")
+  }
+  const expiresAt = typeof tokenResponse.expires_at === "string"
+    ? new Date(tokenResponse.expires_at)
+    : null
+  const tokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
+    ? new Date(Date.now() + expiresIn * 1000)
+    : expiresAt
+  const tokenLifetime = tokenExpiresAt ? tokenExpiresAt.getTime() - Date.now() : 0
+  if (
+    !tokenExpiresAt ||
+    !Number.isFinite(tokenLifetime) ||
+    tokenLifetime <= 0 ||
+    tokenLifetime > MAX_TOKEN_TTL_SECONDS * 1000
+  ) {
+    throw new Error("Trinetra returned an invalid token expiry")
+  }
+
+  const encryptedAccessToken = encryptToken(token)
+  const accountId = typeof tokenResponse.account_id === "string"
+    ? tokenResponse.account_id.slice(0, 255)
+    : null
+
+  await db
+    .update(trinetraIntegration)
+    .set({
+      encryptedAccessToken,
+      accessTokenExpiresAt: tokenExpiresAt,
+      linkedAccountId: accountId,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(trinetraIntegration.userId, userId),
+      eq(trinetraIntegration.enabled, true),
+    ))
+}
+
+function stringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_REASON_COUNT) return null
+  if (value.some((item) => typeof item !== "string" || item.length > MAX_TEXT_LENGTH)) return null
+  return value as string[]
+}
+
+export function normalizeTrinetraDetection(
+  payload: DetectionResponse,
+  requestedType: DetectionType,
+): TrinetraAnalysisResult | null {
+  const resultValue = payload.result ?? payload.data ?? payload
+  if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) return null
+  const result = resultValue as DetectionResponse
+  if (payload.success === false || result.success === false) return null
+
+  const verdictValue = result.verdict ?? result.prediction
+  if (typeof verdictValue !== "string") return null
+  const prediction = verdictValue.trim().toUpperCase()
+  if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
+
+  const confidence = Number(result.confidence)
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) return null
+
+  const rawRisk = result.risk_score ?? result.risk
+  if (rawRisk == null) return null
+  const risk = Number(rawRisk)
+  if (!Number.isFinite(risk) || risk < 0 || risk > 100) return null
+
+  const reasons = result.reasons == null ? [] : stringArray(result.reasons)
+  const tips = result.tips == null ? [] : stringArray(result.tips)
+  if (!reasons || !tips) return null
+  const explanation = typeof result.explanation === "string"
+    ? result.explanation.slice(0, MAX_TEXT_LENGTH)
+    : reasons.join(" ").slice(0, MAX_TEXT_LENGTH) || null
+  const responseType = result.detection_type ?? result.type
+
+  return {
+    detectionType: responseType === "message" || responseType === "url" || responseType === "upi"
+      ? responseType
+      : requestedType,
+    prediction,
+    confidence,
+    risk,
+    safeProbability: null,
+    scamProbability: null,
+    explanation,
+    reasons,
+    tips,
+    ocrText: null,
+    detectedUrls: [],
+    qrContent: null,
+    language: null,
+    speechText: null,
+  }
+}
+
+export async function analyzeTrinetraContent(
+  userId: string,
+  type: DetectionType,
+  content: string,
+  language?: string,
+): Promise<TrinetraAnalysisResult | null> {
+  if (type !== "message" && type !== "url" && type !== "upi") return null
+  if (!content.trim() || content.length > MAX_CONTENT_LENGTH) return null
+
+  const [row] = await db
+    .select()
+    .from(trinetraIntegration)
+    .where(eq(trinetraIntegration.userId, userId))
+    .limit(1)
+  if (!isUsableLink(row) || !row?.encryptedAccessToken) return null
+
+  let token: string
+  try {
+    token = decryptToken(row.encryptedAccessToken)
+  } catch {
+    console.error("[trinetra] Stored token could not be decrypted")
+    return null
+  }
+
+  const { baseUrl, apiKey } = getConfig()
+  const response = await requestJson(
+    `${baseUrl}/api/secure-chat/v1/detect`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Secure-Chat-Key": apiKey,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ type, content, ...(language ? { language } : {}) }),
+    },
+    requestTimeout(),
+  )
+  if (!response.ok || !response.body) {
+    console.warn(`[trinetra] Detection request failed (HTTP ${response.status})`)
+    return null
+  }
+  return normalizeTrinetraDetection(response.body as DetectionResponse, type)
+}
+
+export const TRINETRA_MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH

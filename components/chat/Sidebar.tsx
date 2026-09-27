@@ -22,6 +22,10 @@ interface Props {
   onLanguageChange: (language: LanguageCode) => void
   voiceAlertsEnabled: boolean
   onVoiceAlertsChange: (enabled: boolean) => void
+  trinetraProtection: { enabled: boolean; linked: boolean; pending: boolean }
+  trinetraError: string | null
+  trinetraBusy: boolean
+  onTrinetraProtectionChange: (enabled: boolean) => void
 }
 
 export default function Sidebar({
@@ -35,6 +39,10 @@ export default function Sidebar({
   onLanguageChange,
   voiceAlertsEnabled,
   onVoiceAlertsChange,
+  trinetraProtection,
+  trinetraError,
+  trinetraBusy,
+  onTrinetraProtectionChange,
 }: Props) {
   const router = useRouter()
   const [search, setSearch] = useState("")
@@ -137,6 +145,44 @@ export default function Sidebar({
               aria-label="Automatic voice alerts"
             />
           </label>
+          <div className="mb-3">
+            <label className="flex items-center justify-between gap-3 text-[10px] text-sidebar-foreground">
+              <span>Trinetra AI Protection</span>
+              <input
+                type="checkbox"
+                checked={trinetraProtection.enabled}
+                disabled={trinetraBusy}
+                aria-busy={trinetraBusy}
+                onChange={(event) => onTrinetraProtectionChange(event.target.checked)}
+                className="size-3.5 accent-[--sidebar-primary]"
+                aria-label="Trinetra AI Protection"
+              />
+            </label>
+            <p
+              className={`mt-1 text-[10px] ${trinetraError ? "text-amber-400" : "text-muted-foreground"}`}
+              role={trinetraError ? "status" : undefined}
+              aria-live="polite"
+            >
+              {trinetraError ?? (trinetraBusy
+                ? "Updating Trinetra protection…"
+                : !trinetraProtection.enabled
+                ? "Trinetra AI Protection is OFF"
+                : trinetraProtection.linked
+                  ? "Trinetra protection is ON"
+                  : trinetraProtection.pending
+                    ? "Waiting for Trinetra authorization"
+                    : "Trinetra protection unavailable")}
+            </p>
+            {trinetraProtection.enabled && !trinetraProtection.linked && !trinetraProtection.pending && !trinetraBusy && (
+              <button
+                type="button"
+                onClick={() => onTrinetraProtectionChange(true)}
+                className="mt-1 text-[10px] font-medium text-sidebar-primary hover:underline"
+              >
+                Connect Trinetra
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <UserAvatar user={currentUser} size="sm" showOnline />
             <div className="flex-1 min-w-0">

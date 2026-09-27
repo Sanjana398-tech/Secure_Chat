@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { getSession } from "@/lib/auth-utils"
 import { getUserConversations } from "@/lib/services/conversation.service"
+import { getTrinetraProtectionStatus } from "@/lib/services/trinetra-integration.service"
 import ChatDashboard from "@/components/chat/ChatDashboard"
 
 export default async function ChatPage() {
@@ -8,6 +9,11 @@ export default async function ChatPage() {
   if (!session?.user) redirect("/login")
 
   const conversations = await getUserConversations(session.user.id)
+  const trinetraProtection = await getTrinetraProtectionStatus(session.user.id).catch(() => ({
+    enabled: false,
+    linked: false,
+    pending: false,
+  }))
 
   return (
     <ChatDashboard
@@ -21,6 +27,7 @@ export default async function ChatPage() {
         lastSeen: null,
       }}
       initialConversations={conversations}
+      initialTrinetraProtection={trinetraProtection}
     />
   )
 }

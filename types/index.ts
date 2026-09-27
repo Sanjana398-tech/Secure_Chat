@@ -71,6 +71,11 @@ export interface Message {
   trinetraLanguage: string | null
   /** Speech-ready explanation returned by Trinetra, when available */
   trinetraSpeechText: string | null
+  trinetraDetectionType: string | null
+  trinetraRisk: number | null
+  trinetraExplanation: string | null
+  trinetraTips: string[]
+  trinetraUnavailable: boolean
 }
 
 /** Status shown on outgoing messages */
@@ -128,10 +133,14 @@ export interface OutgoingMessagePayload {
 
 /** Result returned by the Trinetra AI analysis endpoints */
 export interface TrinetraAnalysisResult {
+  detectionType: "message" | "url" | "upi"
   prediction: "SAFE" | "SUSPICIOUS" | "SCAM"
   confidence: number
+  risk: number | null
   safeProbability: number | null
   scamProbability: number | null
+  explanation: string | null
+  tips: string[]
   ocrText: string | null
   detectedUrls: string[]
   qrContent: string | null
@@ -147,6 +156,8 @@ export interface ProcessedMessage extends MessageInput {
   trinetraResult?: TrinetraAnalysisResult | null
   /** Whisper transcript for voice messages */
   trinetraTranscription?: string | null
+  /** True when enabled protection could not reach or validate Trinetra */
+  trinetraUnavailable?: boolean
 }
 
 // ─── API Response shapes ──────────────────────────────────────────────────────

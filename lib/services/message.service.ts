@@ -29,12 +29,10 @@ import { db } from "@/lib/db"
 import { message, conversation } from "@/lib/db/schema"
 import { broadcast, conversationChannel, userChannel } from "@/lib/realtime"
 import {
-  analyzeMessage,
-  analyzeUrl,
-  analyzeImage,
-  analyzeVoice,
-  analyzeUpi,
-} from "@/lib/services/trinetra.service"
+  analyzeTrinetraContent,
+  getTrinetraProtectionStatus,
+  TRINETRA_MAX_CONTENT_LENGTH,
+} from "@/lib/services/trinetra-integration.service"
 import type { MessageInput, ProcessedMessage, Message } from "@/types"
 import { nanoid } from "@/lib/utils"
 
@@ -62,6 +60,7 @@ function serializeMessage(saved: Message): Message {
       saved.analyzedAt instanceof Date ? saved.analyzedAt.toISOString() : saved.analyzedAt,
     trinetraDetectedUrls: parseJsonArray(saved.trinetraDetectedUrls),
     trinetraReasons: parseJsonArray(saved.trinetraReasons),
+    trinetraTips: parseJsonArray(saved.trinetraTips),
   }
 }
 
@@ -76,63 +75,59 @@ function serializeMessage(saved: Message): Message {
  */
 async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   let result: ProcessedMessage["trinetraResult"] = null
-  let transcription: string | null = null
+  let unavailable = false
+  let detectionType: "message" | "url" | "upi" | null = null
+  let detectionContent = ""
 
-  // The sender's Secure Chat user id is forwarded to Trinetra for audit logging.
-  const userId = input.senderId || undefined
+  switch (input.messageType) {
+    case "url":
+      detectionType = "url"
+      detectionContent = input.content.trim()
+      break
+    case "payment": {
+      detectionType = "upi"
+      const payment = new URLSearchParams()
+      if (input.paymentUpiId) payment.set("pa", input.paymentUpiId)
+      if (input.paymentAmount != null) payment.set("am", String(input.paymentAmount))
+      if (input.paymentNote) payment.set("tn", input.paymentNote)
+      detectionContent = `upi://pay?${payment.toString()}`
+      break
+    }
+    case "image":
+    case "voice":
+      break
+    default:
+      detectionType = "message"
+      detectionContent = input.content.trim()
+  }
 
   try {
-    switch (input.messageType) {
-      case "url":
-        // URL / phishing analysis — route the URL string, not the file system
-        if (input.content.trim()) {
-          result = await analyzeUrl(input.content.trim(), userId, input.language)
+    if (detectionType && detectionContent && detectionContent.length <= TRINETRA_MAX_CONTENT_LENGTH) {
+      const protection = await getTrinetraProtectionStatus(input.senderId)
+      if (protection.enabled) {
+        if (!protection.linked) {
+          unavailable = true
+        } else {
+          result = await analyzeTrinetraContent(
+            input.senderId,
+            detectionType,
+            detectionContent,
+            input.language,
+          )
+          unavailable = result === null
         }
-        break
-
-      case "image":
-        // Screenshot / OCR fraud analysis — never falls through to text scan
-        if (input.mediaUrl) {
-          result = await analyzeImage(input.mediaUrl, userId, input.language)
-        }
-        break
-
-      case "voice":
-        // Whisper transcription + DistilBERT — never falls through to text scan
-        if (input.mediaUrl) {
-          const voice = await analyzeVoice(input.mediaUrl, userId, input.language)
-          result = voice.result
-          transcription = voice.transcription
-        }
-        break
-
-      case "payment":
-        // UPI Random Forest fraud model
-        result = await analyzeUpi(
-          input.paymentUpiId ?? "",
-          input.paymentAmount ?? 0,
-          input.paymentNote ?? "",
-          userId,
-          input.language,
-        )
-        break
-
-      default:
-        // Plain text message (also covers legacy rows with no messageType)
-        if (input.content.trim()) {
-          result = await analyzeMessage(input.content, userId, input.language)
-        }
+      }
     }
   } catch (err) {
-    // Defensive: any unexpected error in analysis must not block sending
-    console.warn("[message.service] Trinetra analysis error:", (err as Error).message)
+    unavailable = true
+    console.warn("[message.service] Trinetra analysis unavailable:", (err as Error).message)
   }
 
   return {
     ...input,
     allowed: true,
     trinetraResult: result,
-    trinetraTranscription: transcription,
+    trinetraUnavailable: unavailable,
   }
 }
 
@@ -177,6 +172,11 @@ async function saveMessage(processed: ProcessedMessage): Promise<Message> {
       trinetraReasons: JSON.stringify(trinetra?.reasons ?? []),
       trinetraLanguage: trinetra?.language ?? processed.language ?? null,
       trinetraSpeechText: trinetra?.speechText ?? null,
+      trinetraDetectionType: trinetra?.detectionType ?? null,
+      trinetraRisk: trinetra?.risk ?? null,
+      trinetraExplanation: trinetra?.explanation ?? null,
+      trinetraTips: JSON.stringify(trinetra?.tips ?? []),
+      trinetraUnavailable: processed.trinetraUnavailable ?? false,
     })
     .returning()
 

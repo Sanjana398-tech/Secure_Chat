@@ -14,7 +14,14 @@ const POLL_MS = 2500
 interface Props {
   currentUser: PublicUser
   initialConversations: Conversation[]
+  initialTrinetraProtection: {
+    enabled: boolean
+    linked: boolean
+    pending: boolean
+  }
 }
+
+type TrinetraProtectionState = Props["initialTrinetraProtection"]
 
 function applyLastMessage(
   prev: Conversation[],
@@ -97,7 +104,11 @@ function ToastNotification({
   )
 }
 
-export default function ChatDashboard({ currentUser, initialConversations }: Props) {
+export default function ChatDashboard({
+  currentUser,
+  initialConversations,
+  initialTrinetraProtection,
+}: Props) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [showChat, setShowChat] = useState(false)
@@ -105,6 +116,9 @@ export default function ChatDashboard({ currentUser, initialConversations }: Pro
   const [currentUserState, setCurrentUserState] = useState<PublicUser>(currentUser)
   const [language, setLanguage] = useState<LanguageCode>("en")
   const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(true)
+  const [trinetraProtection, setTrinetraProtection] = useState<TrinetraProtectionState>(initialTrinetraProtection)
+  const [trinetraError, setTrinetraError] = useState<string | null>(null)
+  const [updatingTrinetraProtection, setUpdatingTrinetraProtection] = useState(false)
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = activeConversationId
 
@@ -125,6 +139,33 @@ export default function ChatDashboard({ currentUser, initialConversations }: Pro
   function handleVoiceAlertsChange(enabled: boolean) {
     setVoiceAlertsEnabled(enabled)
     window.localStorage.setItem("trinetra-voice-alerts", String(enabled))
+  }
+
+  async function handleTrinetraProtectionChange(enabled: boolean) {
+    setUpdatingTrinetraProtection(true)
+    setTrinetraError(null)
+    try {
+      const response = await fetch("/api/trinetra/protection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      })
+      const json = await response.json()
+      if (!response.ok || !json.data) throw new Error(json.error ?? "Unable to update protection")
+
+      setTrinetraProtection({
+        enabled: json.data.enabled === true,
+        linked: json.data.linked === true,
+        pending: json.data.pending === true,
+      })
+      if (enabled && typeof json.data.authorizationUrl === "string") {
+        window.location.assign(json.data.authorizationUrl)
+      }
+    } catch {
+      setTrinetraError("Trinetra protection unavailable")
+    } finally {
+      setUpdatingTrinetraProtection(false)
+    }
   }
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) ?? null
@@ -355,6 +396,10 @@ export default function ChatDashboard({ currentUser, initialConversations }: Pro
           onLanguageChange={handleLanguageChange}
           voiceAlertsEnabled={voiceAlertsEnabled}
           onVoiceAlertsChange={handleVoiceAlertsChange}
+          trinetraProtection={trinetraProtection}
+          trinetraError={trinetraError}
+          trinetraBusy={updatingTrinetraProtection}
+          onTrinetraProtectionChange={handleTrinetraProtectionChange}
         />
       </div>
 

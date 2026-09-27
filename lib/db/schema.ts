@@ -60,6 +60,19 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 })
 
+export const trinetraIntegration = pgTable("trinetra_integration", {
+  userId: text("userId")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  encryptedAccessToken: text("encryptedAccessToken"),
+  accessTokenExpiresAt: timestamp("accessTokenExpiresAt"),
+  linkedAccountId: text("linkedAccountId"),
+  pendingStateHash: text("pendingStateHash"),
+  pendingStateExpiresAt: timestamp("pendingStateExpiresAt"),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
+
 // --- Conversations ---------------------------------------------------------
 // A conversation groups messages between two participants. It is reused
 // between the same pair of users (looked up before creating a new one).
@@ -127,4 +140,9 @@ export const message = pgTable("message", {
   trinetraReasons: text("trinetraReasons"),
   trinetraLanguage: text("trinetraLanguage"),
   trinetraSpeechText: text("trinetraSpeechText"),
+  trinetraDetectionType: text("trinetraDetectionType"),
+  trinetraRisk: real("trinetraRisk"),
+  trinetraExplanation: text("trinetraExplanation"),
+  trinetraTips: text("trinetraTips"),
+  trinetraUnavailable: boolean("trinetraUnavailable").notNull().default(false),
 })
