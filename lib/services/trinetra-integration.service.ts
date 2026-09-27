@@ -481,7 +481,7 @@ export async function analyzeTrinetraContent(
         "X-Secure-Chat-Key": apiKey,
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ type, content, ...(language ? { language } : {}) }),
+      body: JSON.stringify({ type, text: content, ...(language ? { language } : {}) }),
     },
     requestTimeout(),
   )

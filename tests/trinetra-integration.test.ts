@@ -316,6 +316,10 @@ describe("Trinetra integration client", () => {
 
     await expect(analyzeTrinetraContent("account-a", "message", "hello"))
       .resolves.toMatchObject({ prediction: "SAFE", confidence: 98, risk: 2 })
+
+    const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
+    expect(requestBody).toMatchObject({ type: "message", text: "hello" })
+    expect(requestBody).not.toHaveProperty("content")
   })
 
   it("cannot use another Secure Chat user's account token", async () => {
