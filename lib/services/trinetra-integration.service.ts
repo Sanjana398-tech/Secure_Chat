@@ -15,6 +15,17 @@ const MAX_TEXT_LENGTH = 1000
 
 type DetectionType = TrinetraAnalysisResult["detectionType"]
 
+class TrinetraConfigurationError extends Error {}
+
+function reportDiagnostic(message: string): void {
+  console.warn(`[trinetra] ${message}`)
+}
+
+function configurationFailure(code: "TRINETRA_CONFIG_MISSING" | "TRINETRA_CONFIG_INVALID"): never {
+  reportDiagnostic(code)
+  throw new TrinetraConfigurationError(code)
+}
+
 interface TokenResponse {
   access_token?: unknown
   account_token?: unknown
@@ -47,17 +58,23 @@ function getConfig() {
   const redirectUri = process.env.TRINETRA_REDIRECT_URI?.trim()
 
   if (!apiKey || !redirectUri) {
-    throw new Error("Trinetra integration is not configured")
+    configurationFailure("TRINETRA_CONFIG_MISSING")
   }
 
-  const base = new URL(baseUrl)
+  let base: URL
+  let callback: URL
+  try {
+    base = new URL(baseUrl)
+    callback = new URL(redirectUri)
+  } catch {
+    configurationFailure("TRINETRA_CONFIG_INVALID")
+  }
   if (base.protocol !== "https:" && process.env.NODE_ENV === "production") {
-    throw new Error("TRINETRA_BASE_URL must use HTTPS in production")
+    configurationFailure("TRINETRA_CONFIG_INVALID")
   }
 
-  const callback = new URL(redirectUri)
   if (callback.protocol !== "https:" && process.env.NODE_ENV === "production") {
-    throw new Error("TRINETRA_REDIRECT_URI must use HTTPS in production")
+    configurationFailure("TRINETRA_CONFIG_INVALID")
   }
 
   return { baseUrl, apiKey, redirectUri }
@@ -65,13 +82,18 @@ function getConfig() {
 
 function getEncryptionKey(): Buffer {
   const encoded = process.env.TRINETRA_TOKEN_ENCRYPTION_KEY?.trim()
-  if (!encoded) throw new Error("Trinetra token encryption is not configured")
+  if (!encoded) configurationFailure("TRINETRA_CONFIG_MISSING")
 
-  const key = /^[a-f0-9]{64}$/i.test(encoded)
-    ? Buffer.from(encoded, "hex")
-    : Buffer.from(encoded, "base64")
+  let key: Buffer
+  try {
+    key = /^[a-f0-9]{64}$/i.test(encoded)
+      ? Buffer.from(encoded, "hex")
+      : Buffer.from(encoded, "base64")
+  } catch {
+    configurationFailure("TRINETRA_CONFIG_INVALID")
+  }
   if (key.length !== 32) {
-    throw new Error("TRINETRA_TOKEN_ENCRYPTION_KEY must encode exactly 32 bytes")
+    configurationFailure("TRINETRA_CONFIG_INVALID")
   }
   return key
 }
@@ -118,12 +140,20 @@ function isUsableLink(row: typeof trinetraIntegration.$inferSelect | undefined):
   )
 }
 
-export async function getTrinetraProtectionStatus(userId: string) {
+export async function getTrinetraProtectionStatus(userId: string, diagnoseLinkFailure = false) {
   const [row] = await db
     .select()
     .from(trinetraIntegration)
     .where(eq(trinetraIntegration.userId, userId))
     .limit(1)
+
+  if (diagnoseLinkFailure && row?.enabled && !isUsableLink(row)) {
+    if (!row.encryptedAccessToken) {
+      reportDiagnostic("TRINETRA_TOKEN_MISSING")
+    } else {
+      reportDiagnostic("TRINETRA_TOKEN_EXPIRED")
+    }
+  }
 
   return {
     enabled: row?.enabled ?? false,
@@ -220,13 +250,14 @@ async function requestJson(
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
   try {
     const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" })
+    if (!response.ok) reportDiagnostic(`TRINETRA_HTTP_ERROR status=${response.status}`)
     const text = await response.text()
-    if (text.length > 64 * 1024) return { ok: false, status: response.status, body: null }
+    if (text.length > 64 * 1024) return { ok: response.ok, status: response.status, body: null }
     let body: unknown
     try {
       body = JSON.parse(text)
     } catch {
-      return { ok: false, status: response.status, body: null }
+      return { ok: response.ok, status: response.status, body: null }
     }
     return {
       ok: response.ok,
@@ -235,6 +266,9 @@ async function requestJson(
         ? body as Record<string, unknown>
         : null,
     }
+  } catch {
+    reportDiagnostic("TRINETRA_NETWORK_ERROR")
+    throw new Error("TRINETRA_NETWORK_ERROR")
   } finally {
     clearTimeout(timeout)
   }
@@ -292,7 +326,11 @@ export async function completeTrinetraAuthorization(
   const tokenResponse = response.body as TokenResponse | null
   const token = tokenResponse?.access_token ?? tokenResponse?.account_token
   const expiresIn = Number(tokenResponse?.expires_in)
-  if (!response.ok || !tokenResponse || typeof token !== "string" || token.length < 16 || token.length > 8192) {
+  if (!response.ok) {
+    throw new Error("Trinetra authorization exchange failed")
+  }
+  if (!tokenResponse || typeof token !== "string" || token.length < 16 || token.length > 8192) {
+    reportDiagnostic("TRINETRA_INVALID_RESPONSE")
     throw new Error("Trinetra authorization exchange failed")
   }
   const expiresAt = typeof tokenResponse.expires_at === "string"
@@ -308,6 +346,7 @@ export async function completeTrinetraAuthorization(
     tokenLifetime <= 0 ||
     tokenLifetime > MAX_TOKEN_TTL_SECONDS * 1000
   ) {
+    reportDiagnostic("TRINETRA_INVALID_RESPONSE")
     throw new Error("Trinetra returned an invalid token expiry")
   }
 
@@ -316,7 +355,7 @@ export async function completeTrinetraAuthorization(
     ? tokenResponse.account_id.slice(0, 255)
     : null
 
-  await db
+  const [linked] = await db
     .update(trinetraIntegration)
     .set({
       encryptedAccessToken,
@@ -328,6 +367,11 @@ export async function completeTrinetraAuthorization(
       eq(trinetraIntegration.userId, userId),
       eq(trinetraIntegration.enabled, true),
     ))
+    .returning({ userId: trinetraIntegration.userId })
+  if (!linked) {
+    reportDiagnostic("TRINETRA_LINK_UPDATE_FAILED")
+    throw new Error("Trinetra authorization link update failed")
+  }
 }
 
 function stringArray(value: unknown): string[] | null {
@@ -400,13 +444,30 @@ export async function analyzeTrinetraContent(
     .from(trinetraIntegration)
     .where(eq(trinetraIntegration.userId, userId))
     .limit(1)
-  if (!isUsableLink(row) || !row?.encryptedAccessToken) return null
+  if (!row) {
+    reportDiagnostic("TRINETRA_LINK_MISSING")
+    return null
+  }
+  if (!row.enabled) {
+    reportDiagnostic("TRINETRA_LINK_DISABLED")
+    return null
+  }
+  if (!row.encryptedAccessToken) {
+    reportDiagnostic("TRINETRA_TOKEN_MISSING")
+    return null
+  }
+  if (!row.accessTokenExpiresAt || row.accessTokenExpiresAt.getTime() <= Date.now()) {
+    reportDiagnostic("TRINETRA_TOKEN_EXPIRED")
+    return null
+  }
 
   let token: string
   try {
     token = decryptToken(row.encryptedAccessToken)
-  } catch {
-    console.error("[trinetra] Stored token could not be decrypted")
+  } catch (error) {
+    if (!(error instanceof TrinetraConfigurationError)) {
+      reportDiagnostic("TRINETRA_TOKEN_DECRYPT_FAILED")
+    }
     return null
   }
 
@@ -424,11 +485,14 @@ export async function analyzeTrinetraContent(
     },
     requestTimeout(),
   )
-  if (!response.ok || !response.body) {
-    console.warn(`[trinetra] Detection request failed (HTTP ${response.status})`)
+  if (!response.ok) return null
+  if (!response.body) {
+    reportDiagnostic("TRINETRA_INVALID_RESPONSE")
     return null
   }
-  return normalizeTrinetraDetection(response.body as DetectionResponse, type)
+  const result = normalizeTrinetraDetection(response.body as DetectionResponse, type)
+  if (!result) reportDiagnostic("TRINETRA_INVALID_RESPONSE")
+  return result
 }
 
 export const TRINETRA_MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH

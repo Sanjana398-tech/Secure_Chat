@@ -109,6 +109,16 @@ describe("message delivery with Trinetra Protection", () => {
     ])
   })
 
+  it("requests link diagnostics when protection is on but the account is not linked", async () => {
+    mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: false, pending: false })
+
+    const sent = await sendMessage(input())
+
+    expect(mocks.getTrinetraProtectionStatus).toHaveBeenCalledWith("secure-user-1", true)
+    expect(mocks.analyzeTrinetraContent).not.toHaveBeenCalled()
+    expect(sent.trinetraUnavailable).toBe(true)
+  })
+
   it("Trinetra errors do not block message persistence or delivery", async () => {
     mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
     mocks.analyzeTrinetraContent.mockRejectedValue(new Error("provider unavailable"))

@@ -103,7 +103,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
 
   try {
     if (detectionType && detectionContent && detectionContent.length <= TRINETRA_MAX_CONTENT_LENGTH) {
-      const protection = await getTrinetraProtectionStatus(input.senderId)
+      const protection = await getTrinetraProtectionStatus(input.senderId, true)
       if (protection.enabled) {
         if (!protection.linked) {
           unavailable = true

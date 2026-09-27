@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createCipheriv, createHash } from "node:crypto"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => {
   const columns = {
@@ -73,11 +73,21 @@ vi.mock("drizzle-orm", () => ({
 import {
   analyzeTrinetraContent,
   completeTrinetraAuthorization,
+  getTrinetraProtectionStatus,
   normalizeTrinetraDetection,
 } from "@/lib/services/trinetra-integration.service"
 
+let diagnosticMessages: string[] = []
+
 function stateHash(value: string) {
   return createHash("sha256").update(value).digest("hex")
+}
+
+function encryptTestToken(token: string) {
+  const iv = Buffer.alloc(12, 9)
+  const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 7), iv)
+  const ciphertext = Buffer.concat([cipher.update(token, "utf8"), cipher.final()])
+  return [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString("base64url")).join(".")
 }
 
 function linkedRow(userId: string, token: string) {
@@ -102,6 +112,57 @@ describe("Trinetra integration client", () => {
     process.env.TRINETRA_REDIRECT_URI = "https://secure-chat.test/api/integrations/trinetra/callback"
     process.env.TRINETRA_TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64")
     vi.stubEnv("NODE_ENV", "test")
+    diagnosticMessages = []
+    vi.spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      if (typeof message === "string") diagnosticMessages.push(message)
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("stores a successfully exchanged token and confirms the link update", async () => {
+    const state = "f".repeat(43)
+    const row = {
+      ...linkedRow("account-a", "unused"),
+      pendingStateHash: stateHash(state),
+      pendingStateExpiresAt: new Date(Date.now() + 60_000),
+    }
+    mocks.rows.set("account-a", row)
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
+      access_token: "account-token-for-test",
+      expires_in: 600,
+      account_id: "trinetra-account-a",
+    }), { status: 200 }))
+
+    await completeTrinetraAuthorization("account-a", state, "one-time-code")
+
+    expect(row.encryptedAccessToken).not.toBe("unused")
+    expect(row.encryptedAccessToken).not.toContain("account-token-for-test")
+    expect(row.linkedAccountId).toBe("trinetra-account-a")
+    expect(row.accessTokenExpiresAt?.getTime()).toBeGreaterThan(Date.now())
+  })
+
+  it("fails authorization when the final link update affects zero rows", async () => {
+    const state = "g".repeat(43)
+    const row = {
+      ...linkedRow("account-a", "unused"),
+      pendingStateHash: stateHash(state),
+      pendingStateExpiresAt: new Date(Date.now() + 60_000),
+    }
+    mocks.rows.set("account-a", row)
+    mocks.fetch.mockImplementation(async () => {
+      row.enabled = false
+      return new Response(JSON.stringify({
+        access_token: "account-token-for-test",
+        expires_in: 600,
+      }), { status: 200 })
+    })
+
+    await expect(completeTrinetraAuthorization("account-a", state, "one-time-code"))
+      .rejects.toThrow("Trinetra authorization link update failed")
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_LINK_UPDATE_FAILED")
   })
 
   it("rejects state from another account before exchanging the code", async () => {
@@ -165,6 +226,96 @@ describe("Trinetra integration client", () => {
     await expect(analyzeTrinetraContent("account-a", "message", "hello"))
       .resolves.toBeNull()
     expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["missing row", undefined, "TRINETRA_LINK_MISSING"],
+    ["disabled row", { ...linkedRow("account-a", "unused"), enabled: false }, "TRINETRA_LINK_DISABLED"],
+    ["missing token", { ...linkedRow("account-a", "unused"), encryptedAccessToken: null }, "TRINETRA_TOKEN_MISSING"],
+    ["expired token", { ...linkedRow("account-a", "unused"), accessTokenExpiresAt: new Date(Date.now() - 1000) }, "TRINETRA_TOKEN_EXPIRED"],
+  ])("diagnoses a %s without making a provider request", async (_name, row, code) => {
+    if (row) mocks.rows.set("account-a", row)
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello")).resolves.toBeNull()
+
+    expect(diagnosticMessages).toContain(`[trinetra] ${code}`)
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("diagnoses token decryption failure without exposing token data", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", "not-a-valid-encrypted-token"))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello")).resolves.toBeNull()
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TOKEN_DECRYPT_FAILED")
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("diagnoses an enabled but unlinked status when requested by a message send", async () => {
+    mocks.rows.set("account-a", {
+      ...linkedRow("account-a", "unused"),
+      encryptedAccessToken: null,
+    })
+
+    await expect(getTrinetraProtectionStatus("account-a", true)).resolves.toMatchObject({
+      enabled: true,
+      linked: false,
+    })
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TOKEN_MISSING")
+  })
+
+  it("diagnoses missing environment configuration without exposing its values", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    delete process.env.TRINETRA_SECURE_CHAT_API_KEY
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello"))
+      .rejects.toThrow("TRINETRA_CONFIG_MISSING")
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_CONFIG_MISSING")
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("reports only the HTTP status for Trinetra failures", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ error: "sensitive provider detail" }), { status: 401 }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello")).resolves.toBeNull()
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_HTTP_ERROR status=401")
+    expect(diagnosticMessages.join(" ")).not.toContain("sensitive provider detail")
+    expect(diagnosticMessages.join(" ")).not.toContain("test-account-token")
+  })
+
+  it("diagnoses transport failures without logging the thrown error", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockRejectedValue(new Error("secret-bearing transport detail"))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello"))
+      .rejects.toThrow("TRINETRA_NETWORK_ERROR")
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_NETWORK_ERROR")
+    expect(diagnosticMessages.join(" ")).not.toContain("secret-bearing transport detail")
+  })
+
+  it("diagnoses malformed provider JSON", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response("not-json", { status: 200 }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello")).resolves.toBeNull()
+
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_INVALID_RESPONSE")
+  })
+
+  it("returns a successful detection result", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      result: { verdict: "SAFE", confidence: 98, risk: 2 },
+    }), { status: 200 }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello"))
+      .resolves.toMatchObject({ prediction: "SAFE", confidence: 98, risk: 2 })
   })
 
   it("cannot use another Secure Chat user's account token", async () => {
