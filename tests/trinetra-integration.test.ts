@@ -378,12 +378,35 @@ describe("Trinetra integration client", () => {
     },
   )
 
+  it.each(["FAKE", "FRAUD", "UNSAFE"])("maps the provider's %s verdict to SCAM", (verdict) => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      prediction: verdict,
+      confidence: 91,
+    }, "message")).toMatchObject({
+      prediction: "SCAM",
+      confidence: 91,
+      risk: null,
+    })
+  })
+
+  it("keeps valid provider detections when the optional risk score is omitted", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      result: { verdict: "SAFE", confidence: 98 },
+    }, "message")).toMatchObject({
+      prediction: "SAFE",
+      confidence: 98,
+      risk: null,
+    })
+  })
+
   it("rejects malformed detection responses instead of inventing a result", () => {
     expect(normalizeTrinetraDetection({ success: true, verdict: "UNKNOWN", confidence: 100 }, "message"))
       .toBeNull()
     expect(normalizeTrinetraDetection({ success: true, verdict: "SCAM", confidence: 101 }, "message"))
       .toBeNull()
-    expect(normalizeTrinetraDetection({ success: true, verdict: "SAFE", confidence: 98 }, "message"))
+    expect(normalizeTrinetraDetection({ success: true, verdict: "SAFE", confidence: "unknown" }, "message"))
       .toBeNull()
   })
 })

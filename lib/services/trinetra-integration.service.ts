@@ -391,16 +391,18 @@ export function normalizeTrinetraDetection(
 
   const verdictValue = result.verdict ?? result.prediction
   if (typeof verdictValue !== "string") return null
-  const prediction = verdictValue.trim().toUpperCase()
+  const verdict = verdictValue.trim().toUpperCase()
+  const prediction = verdict === "FAKE" || verdict === "FRAUD" || verdict === "UNSAFE"
+    ? "SCAM"
+    : verdict
   if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
 
   const confidence = Number(result.confidence)
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) return null
 
   const rawRisk = result.risk_score ?? result.risk
-  if (rawRisk == null) return null
-  const risk = Number(rawRisk)
-  if (!Number.isFinite(risk) || risk < 0 || risk > 100) return null
+  const risk = rawRisk == null ? null : Number(rawRisk)
+  if (risk !== null && (!Number.isFinite(risk) || risk < 0 || risk > 100)) return null
 
   const reasons = result.reasons == null ? [] : stringArray(result.reasons)
   const tips = result.tips == null ? [] : stringArray(result.tips)
