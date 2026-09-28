@@ -46,7 +46,13 @@ interface DetectionResponse {
   risk_score?: unknown
   explanation?: unknown
   reasons?: unknown
+  reason?: unknown
+  red_flags?: unknown
+  indicators?: unknown
+  signals?: unknown
   tips?: unknown
+  safe_probability?: unknown
+  scam_probability?: unknown
   type?: unknown
   detection_type?: unknown
   error?: unknown
@@ -374,10 +380,28 @@ export async function completeTrinetraAuthorization(
   }
 }
 
-function stringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.length > MAX_REASON_COUNT) return null
-  if (value.some((item) => typeof item !== "string" || item.length > MAX_TEXT_LENGTH)) return null
-  return value as string[]
+function textArray(value: unknown): string[] | null {
+  if (value == null) return []
+  const items = Array.isArray(value) ? value.flat(Infinity) : [value]
+  if (items.length > MAX_REASON_COUNT) return null
+
+  const texts: string[] = []
+  for (const item of items) {
+    if (typeof item === "string") {
+      if (item.length > MAX_TEXT_LENGTH) return null
+      if (item.trim()) texts.push(item.trim())
+      continue
+    }
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const record = item as Record<string, unknown>
+      const text = record.description ?? record.reason ?? record.label ?? record.message
+      if (typeof text === "string") {
+        if (text.length > MAX_TEXT_LENGTH) return null
+        if (text.trim()) texts.push(text.trim())
+      }
+    }
+  }
+  return texts
 }
 
 export function normalizeTrinetraDetection(
@@ -397,15 +421,21 @@ export function normalizeTrinetraDetection(
     : verdict
   if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
 
-  const confidence = Number(result.confidence)
+  const confidence = result.confidence == null ? 0 : Number(result.confidence)
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) return null
 
-  const rawRisk = result.risk_score ?? result.risk
+  const rawRisk = result.risk_score ?? result.risk ?? result.scam_probability
   const risk = rawRisk == null ? null : Number(rawRisk)
   if (risk !== null && (!Number.isFinite(risk) || risk < 0 || risk > 100)) return null
 
-  const reasons = result.reasons == null ? [] : stringArray(result.reasons)
-  const tips = result.tips == null ? [] : stringArray(result.tips)
+  const reasons = textArray([
+    result.reasons,
+    result.reason,
+    result.red_flags,
+    result.indicators,
+    result.signals,
+  ].filter((value) => value != null))
+  const tips = textArray(result.tips)
   if (!reasons || !tips) return null
   const explanation = typeof result.explanation === "string"
     ? result.explanation.slice(0, MAX_TEXT_LENGTH)
@@ -419,8 +449,8 @@ export function normalizeTrinetraDetection(
     prediction,
     confidence,
     risk,
-    safeProbability: null,
-    scamProbability: null,
+    safeProbability: result.safe_probability == null ? null : Number(result.safe_probability),
+    scamProbability: result.scam_probability == null ? null : Number(result.scam_probability),
     explanation,
     reasons,
     tips,

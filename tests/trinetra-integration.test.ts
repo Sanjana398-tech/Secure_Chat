@@ -401,6 +401,25 @@ describe("Trinetra integration client", () => {
     })
   })
 
+  it("normalizes legacy confidence, probability, and explanation fields", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      prediction: "SCAM",
+      scam_probability: 87,
+      safe_probability: 13,
+      reasons: [{ description: "Unexpected payment request" }],
+      tips: "Verify the recipient before paying",
+    }, "message")).toMatchObject({
+      prediction: "SCAM",
+      confidence: 0,
+      risk: 87,
+      safeProbability: 13,
+      scamProbability: 87,
+      reasons: ["Unexpected payment request"],
+      tips: ["Verify the recipient before paying"],
+    })
+  })
+
   it("rejects malformed detection responses instead of inventing a result", () => {
     expect(normalizeTrinetraDetection({ success: true, verdict: "UNKNOWN", confidence: 100 }, "message"))
       .toBeNull()
