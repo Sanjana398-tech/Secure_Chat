@@ -41,6 +41,8 @@ interface DetectionResponse {
   data?: unknown
   verdict?: unknown
   prediction?: unknown
+  label?: unknown
+  classification?: unknown
   confidence?: unknown
   risk?: unknown
   risk_score?: unknown
@@ -383,21 +385,19 @@ export async function completeTrinetraAuthorization(
 function textArray(value: unknown): string[] | null {
   if (value == null) return []
   const items = Array.isArray(value) ? value.flat(Infinity) : [value]
-  if (items.length > MAX_REASON_COUNT) return null
 
   const texts: string[] = []
   for (const item of items) {
+    if (texts.length >= MAX_REASON_COUNT) break
     if (typeof item === "string") {
-      if (item.length > MAX_TEXT_LENGTH) return null
-      if (item.trim()) texts.push(item.trim())
+      if (item.trim()) texts.push(item.trim().slice(0, MAX_TEXT_LENGTH))
       continue
     }
     if (item && typeof item === "object" && !Array.isArray(item)) {
       const record = item as Record<string, unknown>
       const text = record.description ?? record.reason ?? record.label ?? record.message
       if (typeof text === "string") {
-        if (text.length > MAX_TEXT_LENGTH) return null
-        if (text.trim()) texts.push(text.trim())
+        if (text.trim()) texts.push(text.trim().slice(0, MAX_TEXT_LENGTH))
       }
     }
   }
@@ -413,20 +413,26 @@ export function normalizeTrinetraDetection(
   const result = resultValue as DetectionResponse
   if (payload.success === false || result.success === false) return null
 
-  const verdictValue = result.verdict ?? result.prediction
+  const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification
   if (typeof verdictValue !== "string") return null
   const verdict = verdictValue.trim().toUpperCase()
-  const prediction = verdict === "FAKE" || verdict === "FRAUD" || verdict === "UNSAFE"
+  const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"].includes(verdict)
     ? "SCAM"
-    : verdict
+    : verdict === "LEGITIMATE"
+      ? "SAFE"
+      : verdict
   if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
 
-  const confidence = result.confidence == null ? 0 : Number(result.confidence)
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) return null
+  const rawConfidence = result.confidence == null ? Number.NaN : Number(result.confidence)
+  const confidence = Number.isFinite(rawConfidence) && rawConfidence >= 0 && rawConfidence <= 100
+    ? rawConfidence
+    : 0
 
   const rawRisk = result.risk_score ?? result.risk ?? result.scam_probability
-  const risk = rawRisk == null ? null : Number(rawRisk)
-  if (risk !== null && (!Number.isFinite(risk) || risk < 0 || risk > 100)) return null
+  const parsedRisk = rawRisk == null ? Number.NaN : Number(rawRisk)
+  const risk = Number.isFinite(parsedRisk) && parsedRisk >= 0 && parsedRisk <= 100
+    ? parsedRisk
+    : null
 
   const reasons = textArray([
     result.reasons,
@@ -449,8 +455,8 @@ export function normalizeTrinetraDetection(
     prediction,
     confidence,
     risk,
-    safeProbability: result.safe_probability == null ? null : Number(result.safe_probability),
-    scamProbability: result.scam_probability == null ? null : Number(result.scam_probability),
+    safeProbability: normalizedProbability(result.safe_probability),
+    scamProbability: normalizedProbability(result.scam_probability),
     explanation,
     reasons,
     tips,
@@ -460,6 +466,14 @@ export function normalizeTrinetraDetection(
     language: null,
     speechText: null,
   }
+}
+
+function normalizedProbability(value: unknown): number | null {
+  if (value == null) return null
+  const probability = Number(value)
+  return Number.isFinite(probability) && probability >= 0 && probability <= 100
+    ? probability
+    : null
 }
 
 export async function analyzeTrinetraContent(

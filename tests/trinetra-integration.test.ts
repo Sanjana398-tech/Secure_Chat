@@ -420,12 +420,34 @@ describe("Trinetra integration client", () => {
     })
   })
 
-  it("rejects malformed detection responses instead of inventing a result", () => {
+  it("preserves a scam verdict when optional provider details are oversized or invalid", () => {
+    const result = normalizeTrinetraDetection({
+      success: true,
+      label: "fraudulent",
+      confidence: "unknown",
+      risk_score: "not-a-score",
+      reasons: Array.from({ length: 25 }, () => ({ description: "x".repeat(1100) })),
+      tips: ["Verify the recipient"],
+      scam_probability: "unknown",
+    }, "message")
+
+    expect(result).toMatchObject({
+      prediction: "SCAM",
+      confidence: 0,
+      risk: null,
+      scamProbability: null,
+      tips: ["Verify the recipient"],
+    })
+    expect(result?.reasons).toHaveLength(20)
+    expect(result?.reasons[0]).toHaveLength(1000)
+  })
+
+  it("rejects unknown verdicts but preserves verdicts with malformed optional scores", () => {
     expect(normalizeTrinetraDetection({ success: true, verdict: "UNKNOWN", confidence: 100 }, "message"))
       .toBeNull()
     expect(normalizeTrinetraDetection({ success: true, verdict: "SCAM", confidence: 101 }, "message"))
-      .toBeNull()
+      .toMatchObject({ prediction: "SCAM", confidence: 0 })
     expect(normalizeTrinetraDetection({ success: true, verdict: "SAFE", confidence: "unknown" }, "message"))
-      .toBeNull()
+      .toMatchObject({ prediction: "SAFE", confidence: 0 })
   })
 })
