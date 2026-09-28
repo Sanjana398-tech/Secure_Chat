@@ -411,7 +411,6 @@ export function normalizeTrinetraDetection(
   const resultValue = payload.result ?? payload.data ?? payload
   if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) return null
   const result = resultValue as DetectionResponse
-  if (payload.success === false || result.success === false) return null
 
   const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification
   if (typeof verdictValue !== "string") return null
@@ -531,7 +530,6 @@ export async function analyzeTrinetraContent(
     },
     requestTimeout(),
   )
-  if (!response.ok) return null
   if (!response.body) {
     reportDiagnostic("TRINETRA_INVALID_RESPONSE")
     return null

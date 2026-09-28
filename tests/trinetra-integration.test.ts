@@ -322,6 +322,29 @@ describe("Trinetra integration client", () => {
     expect(requestBody).not.toHaveProperty("content")
   })
 
+  it("keeps a saved scam verdict when optional post-analysis work fails", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
+      success: false,
+      error: "Optional explanation generation failed",
+      result: {
+        prediction: "SCAM",
+        confidence: 96.4,
+        scam_probability: 91.2,
+        safe_probability: 8.8,
+      },
+    }), { status: 500 }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "test scam text"))
+      .resolves.toMatchObject({
+        prediction: "SCAM",
+        confidence: 96.4,
+        risk: 91.2,
+        scamProbability: 91.2,
+      })
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_HTTP_ERROR status=500")
+  })
+
   it("cannot use another Secure Chat user's account token", async () => {
     const state = "e".repeat(43)
     const row = {
