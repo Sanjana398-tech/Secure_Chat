@@ -54,6 +54,18 @@ describe("Trinetra result display", () => {
     expect(html).toContain("96.40% confidence")
     expect(html).toContain("83.20% risk")
     expect(html).toContain("Why?")
+
+    const spamHtml = renderToStaticMarkup(
+      <MessageBubble
+        message={{ ...message, id: "message-spam", trinetraPrediction: "SPAM", isFlagged: false }}
+        isOwn
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+      />,
+    )
+
+    expect(spamHtml).toContain("Scam Detected")
   })
 
   it("shows safe-result explanation and tips without creating a second result component", () => {

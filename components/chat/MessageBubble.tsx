@@ -69,7 +69,8 @@ export default function MessageBubble({
   const time = formatMessageTime(message.createdAt)
 
   // Trinetra AI
-  const prediction = message.trinetraPrediction?.trim().toUpperCase() ?? null
+  const rawPrediction = message.trinetraPrediction?.trim().toUpperCase() ?? null
+  const prediction = rawPrediction === "SPAM" ? "SCAM" : rawPrediction
   const isScam = prediction === "SCAM" || (message.isFlagged === true && prediction !== "SUSPICIOUS")
   const isSuspicious = prediction === "SUSPICIOUS" && !isScam
   const isSafe = prediction === "SAFE" && !isScam
