@@ -69,14 +69,12 @@ export default function MessageBubble({
   const time = formatMessageTime(message.createdAt)
 
   // Trinetra AI
-  const prediction = message.trinetraPrediction
-  const isScam = prediction === "SCAM"
-  const isSuspicious = prediction === "SUSPICIOUS"
-  const isSafe = prediction === "SAFE"
+  const prediction = message.trinetraPrediction?.trim().toUpperCase() ?? null
+  const isScam = prediction === "SCAM" || (message.isFlagged === true && prediction !== "SUSPICIOUS")
+  const isSuspicious = prediction === "SUSPICIOUS" && !isScam
+  const isSafe = prediction === "SAFE" && !isScam
   const localizedPrediction =
-    prediction === "SAFE" || prediction === "SUSPICIOUS" || prediction === "SCAM"
-      ? prediction
-      : null
+    isScam ? "SCAM" : isSuspicious ? "SUSPICIOUS" : isSafe ? "SAFE" : null
   const alertLanguage = language
   const copy = getDetectionCopy(alertLanguage)
   const whyCopy = getDetectionCopy(language)
@@ -85,7 +83,7 @@ export default function MessageBubble({
   const [showWhy, setShowWhy] = useState(false)
   const lastSpokenDetection = useRef<string | null>(null)
   const confidence = message.trinetraConfidence
-  const isAnalyzed = !isTemp && (prediction != null || message.analyzedAt != null)
+  const isAnalyzed = !isTemp && (prediction != null || message.analyzedAt != null || message.isFlagged === true)
   const hasScreenshotDetails =
     message.messageType === "image" &&
     (message.trinetraOcrText ||
