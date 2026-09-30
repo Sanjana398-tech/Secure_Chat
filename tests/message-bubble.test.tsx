@@ -117,5 +117,19 @@ describe("Trinetra result display", () => {
     expect(html).toContain("The message appears safe.")
     expect(html).toContain("No suspicious pattern was detected.")
     expect(html).toContain("Stay cautious with unexpected requests.")
+
+    for (const safeAlias of ["NOT_SPAM", "NOT SPAM", "HAM"]) {
+      const safeAliasHtml = renderToStaticMarkup(
+        <MessageBubble
+          message={{ ...message, id: `message-${safeAlias}`, trinetraPrediction: safeAlias }}
+          isOwn
+          isLastInRun
+          language="en"
+          voiceAlertsEnabled={false}
+        />,
+      )
+
+      expect(safeAliasHtml).toContain("Safe")
+    }
   })
 })

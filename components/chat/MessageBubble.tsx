@@ -70,7 +70,17 @@ export default function MessageBubble({
 
   // Trinetra AI
   const rawPrediction = message.trinetraPrediction?.trim().toUpperCase() ?? null
-  const prediction = rawPrediction === "SPAM" ? "SCAM" : rawPrediction
+  const normalizedPrediction = rawPrediction?.replace(/[\s-]+/g, "_") ?? null
+  const prediction = normalizedPrediction &&
+    ["SCAM", "SPAM", "FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"]
+      .includes(normalizedPrediction)
+    ? "SCAM"
+    : normalizedPrediction &&
+        ["NOT_SPAM", "NON_SPAM", "HAM", "BENIGN", "CLEAN", "LEGITIMATE"].includes(normalizedPrediction)
+      ? "SAFE"
+      : normalizedPrediction === "WARNING"
+        ? "SUSPICIOUS"
+        : normalizedPrediction
   const isScam = prediction === "SCAM" || (message.isFlagged === true && prediction !== "SUSPICIOUS")
   const isSuspicious = prediction === "SUSPICIOUS" && !isScam
   const isSafe = prediction === "SAFE" && !isScam
