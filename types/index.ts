@@ -137,6 +137,7 @@ export interface TrinetraAnalysisResult {
   prediction: "SAFE" | "SUSPICIOUS" | "SCAM"
   confidence: number
   risk: number | null
+  alert?: string | null
   safeProbability: number | null
   scamProbability: number | null
   explanation: string | null

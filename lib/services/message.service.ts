@@ -174,7 +174,7 @@ async function saveMessage(processed: ProcessedMessage): Promise<Message> {
       trinetraSpeechText: trinetra?.speechText ?? null,
       trinetraDetectionType: trinetra?.detectionType ?? null,
       trinetraRisk: trinetra?.risk ?? null,
-      trinetraExplanation: trinetra?.explanation ?? null,
+      trinetraExplanation: trinetra?.alert ?? trinetra?.explanation ?? null,
       trinetraTips: JSON.stringify(trinetra?.tips ?? []),
       trinetraUnavailable: processed.trinetraUnavailable ?? false,
     })

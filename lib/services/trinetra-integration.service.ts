@@ -57,6 +57,7 @@ interface DetectionResponse {
   indicators?: unknown
   signals?: unknown
   tips?: unknown
+  alert?: unknown
   safe_probability?: unknown
   scam_probability?: unknown
   type?: unknown
@@ -287,7 +288,7 @@ async function requestJson(
 }
 
 function requestTimeout(): number {
-  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 10_000)
+  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 30_000)
   return Number.isFinite(configured) ? Math.max(1000, Math.min(configured, 30_000)) : 10_000
 }
 
@@ -470,6 +471,9 @@ export function normalizeTrinetraDetection(
   ].filter((value) => value != null))
   const tips = textArray(result.tips)
   if (!reasons || !tips) return null
+  const alert = typeof result.alert === "string" && result.alert.trim()
+    ? result.alert.trim().slice(0, MAX_TEXT_LENGTH)
+    : null
   const explanation = typeof result.explanation === "string"
     ? result.explanation.slice(0, MAX_TEXT_LENGTH)
     : reasons.join(" ").slice(0, MAX_TEXT_LENGTH) || null
@@ -482,6 +486,7 @@ export function normalizeTrinetraDetection(
     prediction,
     confidence,
     risk,
+    alert,
     safeProbability: normalizedProbability(result.safe_probability),
     scamProbability: normalizedProbability(result.scam_probability),
     explanation,

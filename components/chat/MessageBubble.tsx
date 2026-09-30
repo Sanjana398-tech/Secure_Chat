@@ -274,6 +274,11 @@ export default function MessageBubble({
                 {whyCopy.detectedTitle[flaggedPrediction]}
               </span>
             </div>
+            {message.trinetraExplanation && (
+              <p className="mb-2 text-xs leading-snug" role="alert">
+                {message.trinetraExplanation}
+              </p>
+            )}
             <p className="mb-1 text-[10px] opacity-80">
               {message.trinetraDetectionType?.toUpperCase() ?? "MESSAGE"}
               {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
