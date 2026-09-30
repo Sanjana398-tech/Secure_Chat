@@ -322,6 +322,28 @@ describe("Trinetra integration client", () => {
     expect(requestBody).not.toHaveProperty("content")
   })
 
+  it("reads a detection nested inside the provider response envelope", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: {
+        result: {
+          verdict: "SCAM",
+          confidence: 94,
+          explanation: "The message resembles a scam.",
+        },
+      },
+    }), { status: 200 }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "test scam text"))
+      .resolves.toMatchObject({
+        prediction: "SCAM",
+        confidence: 94,
+        explanation: "The message resembles a scam.",
+      })
+    expect(diagnosticMessages).not.toContain("[trinetra] TRINETRA_INVALID_RESPONSE")
+  })
+
   it("keeps a saved scam verdict when optional post-analysis work fails", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     mocks.fetch.mockResolvedValue(new Response(JSON.stringify({

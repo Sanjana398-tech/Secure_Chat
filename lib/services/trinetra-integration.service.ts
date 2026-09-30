@@ -39,6 +39,10 @@ interface DetectionResponse {
   success?: unknown
   result?: unknown
   data?: unknown
+  detection?: unknown
+  analysis?: unknown
+  output?: unknown
+  response?: unknown
   verdict?: unknown
   prediction?: unknown
   label?: unknown
@@ -404,13 +408,35 @@ function textArray(value: unknown): string[] | null {
   return texts
 }
 
+function findDetectionResult(
+  value: unknown,
+  depth = 0,
+): DetectionResponse | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+
+  const record = value as DetectionResponse
+  const verdict = record.verdict ?? record.prediction ?? record.label ?? record.classification
+  if (typeof verdict === "string") return record
+  if (depth >= 5) return null
+
+  for (const key of ["result", "data", "detection", "analysis", "output", "response"] as const) {
+    const nested = record[key]
+    if (typeof nested === "string" && key === "result") {
+      return { ...record, verdict: nested }
+    }
+    const result = findDetectionResult(nested, depth + 1)
+    if (result) return { ...record, ...result }
+  }
+
+  return null
+}
+
 export function normalizeTrinetraDetection(
   payload: DetectionResponse,
   requestedType: DetectionType,
 ): TrinetraAnalysisResult | null {
-  const resultValue = payload.result ?? payload.data ?? payload
-  if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) return null
-  const result = resultValue as DetectionResponse
+  const result = findDetectionResult(payload)
+  if (!result) return null
 
   const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification
   if (typeof verdictValue !== "string") return null
@@ -537,7 +563,12 @@ export async function analyzeTrinetraContent(
     return null
   }
   const result = normalizeTrinetraDetection(response.body as DetectionResponse, type)
-  if (!result) reportDiagnostic("TRINETRA_INVALID_RESPONSE")
+  if (!result) {
+    reportDiagnostic("TRINETRA_INVALID_RESPONSE")
+    reportDiagnostic(
+      `TRINETRA_RESPONSE_SHAPE status=${response.status} keys=${Object.keys(response.body).sort().slice(0, 20).join(",") || "none"}`,
+    )
+  }
   return result
 }
 
