@@ -413,18 +413,47 @@ function findDetectionResult(
   value: unknown,
   depth = 0,
 ): DetectionResponse | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  if (!value || typeof value !== "object") return null
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const result = findDetectionResult(item, depth + 1)
+      if (result) return result
+    }
+    return null
+  }
+  if (depth >= 5) return null
 
   const record = value as DetectionResponse
   const verdict = record.verdict ?? record.prediction ?? record.label ?? record.classification
   if (typeof verdict === "string") return record
-  if (depth >= 5) return null
 
-  for (const key of ["result", "data", "detection", "analysis", "output", "response"] as const) {
+  const envelopeKeys = [
+    "result",
+    "data",
+    "detection",
+    "analysis",
+    "output",
+    "response",
+    "scan",
+    "scan_result",
+    "scanResult",
+    "scan_history",
+    "scanHistory",
+    "detection_result",
+    "detectionResult",
+  ] as const
+
+  for (const key of envelopeKeys) {
     const nested = record[key]
     if (typeof nested === "string" && key === "result") {
       return { ...record, verdict: nested }
     }
+    const result = findDetectionResult(nested, depth + 1)
+    if (result) return { ...record, ...result }
+  }
+
+  for (const [key, nested] of Object.entries(record)) {
+    if (envelopeKeys.includes(key as (typeof envelopeKeys)[number])) continue
     const result = findDetectionResult(nested, depth + 1)
     if (result) return { ...record, ...result }
   }

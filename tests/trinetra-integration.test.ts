@@ -344,6 +344,23 @@ describe("Trinetra integration client", () => {
     expect(diagnosticMessages).not.toContain("[trinetra] TRINETRA_INVALID_RESPONSE")
   })
 
+  it("reads a scam verdict nested in the provider scan-history envelope", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      scan_history: [{
+        result: {
+          prediction: "SCAM",
+          confidence: 94,
+          explanation: "The message resembles a scam.",
+        },
+      }],
+    }, "message")).toMatchObject({
+      prediction: "SCAM",
+      confidence: 94,
+      explanation: "The message resembles a scam.",
+    })
+  })
+
   it("keeps a saved scam verdict when optional post-analysis work fails", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
