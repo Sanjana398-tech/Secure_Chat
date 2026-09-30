@@ -413,6 +413,19 @@ describe("Trinetra integration client", () => {
     })
   })
 
+  it("maps the provider's WARNING verdict to a visible suspicious result", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      verdict: "WARNING",
+      confidence: 84,
+      explanation: "The message contains suspicious payment language.",
+    }, "message")).toMatchObject({
+      prediction: "SUSPICIOUS",
+      confidence: 84,
+      explanation: "The message contains suspicious payment language.",
+    })
+  })
+
   it("keeps valid provider detections when the optional risk score is omitted", () => {
     expect(normalizeTrinetraDetection({
       success: true,

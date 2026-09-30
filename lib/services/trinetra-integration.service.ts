@@ -417,6 +417,8 @@ export function normalizeTrinetraDetection(
   const verdict = verdictValue.trim().toUpperCase()
   const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"].includes(verdict)
     ? "SCAM"
+    : verdict === "WARNING"
+      ? "SUSPICIOUS"
     : verdict === "LEGITIMATE"
       ? "SAFE"
       : verdict
