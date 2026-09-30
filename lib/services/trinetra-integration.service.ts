@@ -288,8 +288,8 @@ async function requestJson(
 }
 
 function requestTimeout(): number {
-  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 30_000)
-  return Number.isFinite(configured) ? Math.max(1000, Math.min(configured, 30_000)) : 10_000
+  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 90_000)
+  return Number.isFinite(configured) ? Math.max(1000, Math.min(configured, 90_000)) : 90_000
 }
 
 export async function completeTrinetraAuthorization(
