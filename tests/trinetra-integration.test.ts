@@ -440,7 +440,7 @@ describe("Trinetra integration client", () => {
     },
   )
 
-  it.each(["FAKE", "FRAUD", "UNSAFE"])("maps the provider's %s verdict to SCAM", (verdict) => {
+  it.each(["FAKE", "FRAUD", "UNSAFE", "SPAM"])("maps the provider's %s verdict to SCAM", (verdict) => {
     expect(normalizeTrinetraDetection({
       success: true,
       prediction: verdict,
@@ -449,6 +449,21 @@ describe("Trinetra integration client", () => {
       prediction: "SCAM",
       confidence: 91,
       risk: null,
+    })
+  })
+
+  it.each(["NOT_SPAM", "NOT SPAM", "HAM"])("maps the provider's %s verdict to SAFE", (verdict) => {
+    expect(normalizeTrinetraDetection({ success: true, verdict }, "message"))
+      .toMatchObject({ prediction: "SAFE" })
+  })
+
+  it("maps the provider's boolean is_spam flag to a scam verdict", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      result: { is_spam: true, confidence: 93 },
+    }, "message")).toMatchObject({
+      prediction: "SCAM",
+      confidence: 93,
     })
   })
 

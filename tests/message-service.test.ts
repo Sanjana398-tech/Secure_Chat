@@ -109,6 +109,25 @@ describe("message delivery with Trinetra Protection", () => {
     ])
   })
 
+  it("persists and broadcasts a scam verdict as an alertable message result", async () => {
+    mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
+    mocks.analyzeTrinetraContent.mockResolvedValue({
+      ...safeResult,
+      prediction: "SCAM",
+      scamProbability: 94,
+      explanation: "This message matches scam patterns.",
+    })
+
+    const sent = await sendMessage(input())
+    const broadcastMessage = mocks.broadcast.mock.calls[0][1].message
+
+    expect(sent.trinetraPrediction).toBe("SCAM")
+    expect(sent.isFlagged).toBe(true)
+    expect(sent.analyzedAt).not.toBeNull()
+    expect(broadcastMessage.trinetraPrediction).toBe("SCAM")
+    expect(broadcastMessage.isFlagged).toBe(true)
+  })
+
   it("requests link diagnostics when protection is on but the account is not linked", async () => {
     mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: false, pending: false })
 

@@ -43,10 +43,21 @@ interface DetectionResponse {
   analysis?: unknown
   output?: unknown
   response?: unknown
+  scan?: unknown
+  scan_result?: unknown
+  scanResult?: unknown
+  scan_history?: unknown
+  scanHistory?: unknown
+  detection_result?: unknown
+  detectionResult?: unknown
   verdict?: unknown
   prediction?: unknown
   label?: unknown
   classification?: unknown
+  is_spam?: unknown
+  isSpam?: unknown
+  is_scam?: unknown
+  isScam?: unknown
   confidence?: unknown
   risk?: unknown
   risk_score?: unknown
@@ -426,6 +437,10 @@ function findDetectionResult(
   const record = value as DetectionResponse
   const verdict = record.verdict ?? record.prediction ?? record.label ?? record.classification
   if (typeof verdict === "string") return record
+  const spamFlag = record.is_spam ?? record.isSpam ?? record.is_scam ?? record.isScam
+  if (typeof spamFlag === "boolean") {
+    return { ...record, verdict: spamFlag ? "SPAM" : "NOT_SPAM" }
+  }
 
   const envelopeKeys = [
     "result",
@@ -470,13 +485,13 @@ export function normalizeTrinetraDetection(
 
   const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification
   if (typeof verdictValue !== "string") return null
-  const verdict = verdictValue.trim().toUpperCase()
-  const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"].includes(verdict)
+  const verdict = verdictValue.trim().toUpperCase().replace(/[\s-]+/g, "_")
+  const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING", "SPAM"].includes(verdict)
     ? "SCAM"
-    : verdict === "WARNING"
-      ? "SUSPICIOUS"
-    : verdict === "LEGITIMATE"
+    : ["NOT_SPAM", "NON_SPAM", "HAM", "BENIGN", "CLEAN", "LEGITIMATE"].includes(verdict)
       ? "SAFE"
+      : verdict === "WARNING"
+      ? "SUSPICIOUS"
       : verdict
   if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
 
