@@ -760,6 +760,21 @@ export async function analyzeTrinetraContent(
 
   const credentials = await getTrinetraCredentials(userId)
   if (!credentials) return null
+  const requestType = ({ message: "TEXT", url: "URL", upi: "UPI", qr: "QR" } as const)[type]
+  let typePayload: Record<string, string | number> = {}
+  if (type === "url") {
+    typePayload = { url: content }
+  } else if (type === "upi") {
+    const payment = new URL(content)
+    const amount = payment.searchParams.get("am")
+    typePayload = {
+      upi_id: payment.searchParams.get("pa") ?? "",
+      ...(amount ? { amount: Number(amount) } : {}),
+      ...(payment.searchParams.has("tn") ? { note: payment.searchParams.get("tn") ?? "" } : {}),
+    }
+  } else {
+    typePayload = { text: content }
+  }
   const response = await requestJson(
     `${credentials.baseUrl}/api/secure-chat/v1/detect`,
     {
@@ -770,13 +785,14 @@ export async function analyzeTrinetraContent(
         Authorization: `Bearer ${credentials.token}`,
       },
       body: JSON.stringify({
-        type: { message: "TEXT", url: "URL", upi: "UPI", qr: "QR" }[type],
-        ...(type === "url" ? { url: content } : { text: content }),
+        type: requestType,
+        ...typePayload,
+        ...(credentials.linkedAccountId ? { user_id: credentials.linkedAccountId } : {}),
         ...(language ? { language } : {}),
       }),
     },
     "DETECT",
-    ({ message: "TEXT", url: "URL", upi: "UPI", qr: "QR" } as const)[type],
+    requestType,
   )
   if (!response.body) {
     reportDiagnostic("TRINETRA_INVALID_RESPONSE")

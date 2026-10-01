@@ -358,7 +358,12 @@ describe("Trinetra integration client", () => {
       language: "en",
     }), { status: 200 }))
 
-    await analyzeTrinetraContent("account-a", type, "sample content")
+    const content = type === "upi"
+      ? "upi://pay?pa=merchant%40bank&am=250&tn=Order+42"
+      : type === "url"
+        ? "https://example.test/pay"
+        : "sample content"
+    await analyzeTrinetraContent("account-a", type, content)
 
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
       "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
@@ -366,7 +371,15 @@ describe("Trinetra integration client", () => {
     const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
     expect(requestBody.type).toBe(apiType)
     if (type === "url") {
-      expect(requestBody).toMatchObject({ url: "sample content" })
+      expect(requestBody).toMatchObject({ url: "https://example.test/pay" })
+      expect(requestBody).not.toHaveProperty("text")
+    } else if (type === "upi") {
+      expect(requestBody).toMatchObject({
+        upi_id: "merchant@bank",
+        amount: 250,
+        note: "Order 42",
+        user_id: "account-account-a",
+      })
       expect(requestBody).not.toHaveProperty("text")
     } else {
       expect(requestBody).toMatchObject({ text: "sample content" })
