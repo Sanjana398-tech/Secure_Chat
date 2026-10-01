@@ -139,6 +139,7 @@ export const message = pgTable("message", {
   trinetraQrContent: text("trinetraQrContent"),
   trinetraReasons: text("trinetraReasons"),
   trinetraLanguage: text("trinetraLanguage"),
+  trinetraScanId: text("trinetraScanId"),
   trinetraSpeechText: text("trinetraSpeechText"),
   trinetraDetectionType: text("trinetraDetectionType"),
   trinetraRisk: real("trinetraRisk"),

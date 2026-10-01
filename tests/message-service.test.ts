@@ -58,6 +58,7 @@ const safeResult: TrinetraAnalysisResult = {
   detectedUrls: [],
   qrContent: null,
   language: "en",
+  scanId: null,
   speechText: null,
 }
 
@@ -126,6 +127,8 @@ describe("message delivery with Trinetra Protection", () => {
       prediction: "SCAM",
       scamProbability: 94,
       explanation: "This message matches scam patterns.",
+      scanId: "scan-scam-1",
+      language: "kn",
     })
 
     const sent = await sendMessage(input())
@@ -133,11 +136,29 @@ describe("message delivery with Trinetra Protection", () => {
 
     expect(sent.trinetraPrediction).toBe("SCAM")
     expect(sent.isFlagged).toBe(true)
+    expect(sent.trinetraScanId).toBe("scan-scam-1")
+    expect(sent.trinetraLanguage).toBe("kn")
     expect(sent.analyzedAt).not.toBeNull()
     expect(broadcastMessage.trinetraPrediction).toBe("SCAM")
     expect(broadcastMessage.isFlagged).toBe(true)
     expect(sent.trinetraLocked).toBe(true)
     expect(broadcastMessage.trinetraLocked).toBe(true)
+  })
+
+  it("persists SPAM as a distinct locked receiver result", async () => {
+    mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
+    mocks.analyzeTrinetraContent.mockResolvedValue({
+      ...safeResult,
+      prediction: "SPAM",
+      scanId: "scan-spam-1",
+    })
+
+    const sent = await sendMessage(input())
+
+    expect(sent.trinetraPrediction).toBe("SPAM")
+    expect(sent.isFlagged).toBe(true)
+    expect(sent.trinetraLocked).toBe(true)
+    expect(sent.trinetraScanId).toBe("scan-spam-1")
   })
 
   it("persists and broadcasts the receiver's explicit open decision", async () => {

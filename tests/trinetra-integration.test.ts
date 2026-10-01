@@ -302,6 +302,18 @@ describe("Trinetra integration client", () => {
     expect(diagnosticMessages.join(" ")).not.toContain("secret-bearing transport detail")
   })
 
+  it("reports provider timeouts separately from network failures", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    process.env.TRINETRA_TIMEOUT_MS = "1000"
+    mocks.fetch.mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+    }))
+
+    await expect(analyzeTrinetraContent("account-a", "message", "hello"))
+      .rejects.toThrow("TRINETRA_TIMEOUT")
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TIMEOUT after=1000ms")
+  })
+
   it("diagnoses malformed provider JSON", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     mocks.fetch.mockResolvedValue(new Response("not-json", { status: 200 }))
@@ -322,8 +334,33 @@ describe("Trinetra integration client", () => {
       .resolves.toMatchObject({ prediction: "SAFE", confidence: 98, risk: 2 })
 
     const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
-    expect(requestBody).toMatchObject({ type: "message", text: "hello" })
+    expect(requestBody).toMatchObject({ type: "TEXT", text: "hello" })
     expect(requestBody).not.toHaveProperty("content")
+  })
+
+  it.each([
+    ["message", "TEXT"],
+    ["url", "URL"],
+    ["upi", "UPI"],
+    ["qr", "QR"],
+  ] as const)("sends %s through the unified detector as %s", async (type, apiType) => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({
+      classification: "SAFE",
+      scan_id: `scan-${apiType.toLowerCase()}`,
+      risk_score: 1,
+      language: "en",
+    }), { status: 200 }))
+
+    await analyzeTrinetraContent("account-a", type, "sample content")
+
+    expect(String(mocks.fetch.mock.calls[0][0])).toBe(
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
+    )
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body as string)).toMatchObject({
+      type: apiType,
+      text: "sample content",
+    })
   })
 
   it("uploads the actual private image bytes to Trinetra and scans returned OCR text", async () => {
@@ -362,8 +399,9 @@ describe("Trinetra integration client", () => {
     const form = options.body as FormData
     const uploadedImage = form.get("image") as File
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
-      "https://trinetra-ai-ua5e.onrender.com/api/analyze-screenshot",
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
+    expect(form.get("type")).toBe("IMAGE")
     expect(uploadedImage.name).toBe("0123456789abcdef0123456789abcdef.png")
     expect(uploadedImage.type).toBe("image/png")
     expect(await uploadedImage.text()).toBe("actual image bytes")
@@ -371,10 +409,48 @@ describe("Trinetra integration client", () => {
     expect(options.headers.Authorization).toBe("Bearer test-account-token")
     expect(options.headers["X-Secure-Chat-Key"]).toBe("test-server-secret")
     expect(JSON.parse(mocks.fetch.mock.calls[1][1].body as string)).toMatchObject({
-      type: "message",
+      type: "TEXT",
       text: "Approve the urgent payment",
     })
     expect(analysis.result).toMatchObject({ prediction: "SCAM", ocrText: "Approve the urgent payment" })
+  })
+
+  it("runs a returned QR payload through Trinetra's QR classification", async () => {
+    mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
+    mocks.getBlob.mockResolvedValue({
+      blob: { contentType: "image/png" },
+      stream: new Blob(["actual QR image bytes"]).stream(),
+    })
+    mocks.fetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        classification: "SAFE",
+        scan_id: "scan-image-1",
+        qr_content: "upi://pay?pa=merchant@bank",
+        language: "en",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        classification: "SCAM",
+        scan_id: "scan-qr-1",
+        risk_score: 94,
+        language: "hi",
+      }), { status: 200 }))
+
+    const analysis = await analyzeTrinetraMedia(
+      "account-a",
+      "image",
+      "/api/files/0123456789abcdef0123456789abcdef.png",
+    )
+
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body as string)).toMatchObject({
+      type: "QR",
+      text: "upi://pay?pa=merchant@bank",
+    })
+    expect(analysis.result).toMatchObject({
+      prediction: "SCAM",
+      detectionType: "qr",
+      scanId: "scan-qr-1",
+      qrContent: "upi://pay?pa=merchant@bank",
+    })
   })
 
   it("sends the actual voice bytes to Whisper and classifies its transcript", async () => {
@@ -403,13 +479,14 @@ describe("Trinetra integration client", () => {
     const form = mocks.fetch.mock.calls[0][1].body as FormData
     const uploadedAudio = form.get("audio") as File
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
-      "https://trinetra-ai-ua5e.onrender.com/api/analyze-voice",
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
+    expect(form.get("type")).toBe("VOICE")
     expect(uploadedAudio.name).toBe("0123456789abcdef0123456789abcdef.webm")
     expect(uploadedAudio.type).toBe("audio/webm")
     expect(await uploadedAudio.text()).toBe("actual audio bytes")
     expect(JSON.parse(mocks.fetch.mock.calls[1][1].body as string)).toMatchObject({
-      type: "message",
+      type: "TEXT",
       text: "Send your account password now",
     })
     expect(analysis).toMatchObject({
@@ -442,7 +519,7 @@ describe("Trinetra integration client", () => {
 
     expect(mocks.fetch).toHaveBeenCalledTimes(2)
     expect(JSON.parse(mocks.fetch.mock.calls[1][1].body as string)).toMatchObject({
-      type: "message",
+      type: "TEXT",
       text: "Your account is blocked; pay now",
     })
     expect(analysis.result).toMatchObject({
@@ -594,7 +671,7 @@ describe("Trinetra integration client", () => {
     },
   )
 
-  it.each(["FAKE", "FRAUD", "UNSAFE", "SPAM"])("maps the provider's %s verdict to SCAM", (verdict) => {
+  it.each(["FAKE", "FRAUD", "UNSAFE"])("maps the provider's %s verdict to SCAM", (verdict) => {
     expect(normalizeTrinetraDetection({
       success: true,
       prediction: verdict,
@@ -603,6 +680,21 @@ describe("Trinetra integration client", () => {
       prediction: "SCAM",
       confidence: 91,
       risk: null,
+    })
+  })
+
+  it("preserves classification, risk score, scan id, and detected language", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      classification: "SPAM",
+      risk_score: 88,
+      scan_id: "scan-spam-1",
+      language: "ta-IN",
+    }, "message")).toMatchObject({
+      prediction: "SPAM",
+      risk: 88,
+      scanId: "scan-spam-1",
+      language: "ta-IN",
     })
   })
 
@@ -616,7 +708,7 @@ describe("Trinetra integration client", () => {
       success: true,
       result: { is_spam: true, confidence: 93 },
     }, "message")).toMatchObject({
-      prediction: "SCAM",
+      prediction: "SPAM",
       confidence: 93,
     })
   })
@@ -627,7 +719,7 @@ describe("Trinetra integration client", () => {
       detection: "SPAM",
       confidence: 93,
     }, "message")).toMatchObject({
-      prediction: "SCAM",
+      prediction: "SPAM",
       confidence: 93,
     })
   })

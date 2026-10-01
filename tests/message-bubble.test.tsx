@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import MessageBubble from "@/components/chat/MessageBubble"
+import { getProtectionAlertCopy } from "@/lib/localization"
 import type { Message } from "@/types"
 
 describe("Trinetra result display", () => {
@@ -32,6 +33,7 @@ describe("Trinetra result display", () => {
       trinetraQrContent: null,
       trinetraReasons: ["Recipient handle is uncommon."],
       trinetraLanguage: "en",
+      trinetraScanId: null,
       trinetraSpeechText: null,
       trinetraDetectionType: "upi",
       trinetraRisk: 83.2,
@@ -69,7 +71,7 @@ describe("Trinetra result display", () => {
       />,
     )
 
-    expect(spamHtml).toContain("Scam Detected")
+    expect(spamHtml).toContain("Spam Detected")
   })
 
   it("shows safe-result explanation and tips without creating a second result component", () => {
@@ -100,6 +102,7 @@ describe("Trinetra result display", () => {
       trinetraQrContent: null,
       trinetraReasons: ["No suspicious pattern was detected."],
       trinetraLanguage: "en",
+      trinetraScanId: null,
       trinetraSpeechText: null,
       trinetraDetectionType: "message",
       trinetraRisk: 0.5,
@@ -183,6 +186,7 @@ describe("Trinetra result display", () => {
       trinetraQrContent: null,
       trinetraReasons: [],
       trinetraLanguage: "en",
+      trinetraScanId: "scan-locked-1",
       trinetraSpeechText: null,
       trinetraDetectionType: "message",
       trinetraRisk: 88,
@@ -205,7 +209,7 @@ describe("Trinetra result display", () => {
     )
 
     expect(html).toContain("Trinetra Protection Alert")
-    expect(html).toContain("Open Message")
+    expect(html).toContain(">Open</button>")
     expect(html).toContain("Don&#x27;t Open")
     expect(html).not.toContain("Send your password immediately")
 
@@ -243,6 +247,25 @@ describe("Trinetra result display", () => {
     )
     expect(openedHtml).toContain("Send your password immediately")
     expect(openedHtml).not.toContain("Trinetra Protection Alert")
+
+    const hindiAlertHtml = renderToStaticMarkup(
+      <MessageBubble
+        message={{ ...message, trinetraLanguage: "hi-IN" }}
+        isOwn={false}
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
+      />,
+    )
+    expect(hindiAlertHtml).toContain(getProtectionAlertCopy("hi").open)
+    expect(hindiAlertHtml).toContain(getProtectionAlertCopy("hi").dontOpen)
+    expect(hindiAlertHtml).not.toContain("Send your password immediately")
+
+    for (const language of ["en", "hi", "kn", "te", "ta", "ml"]) {
+      expect(getProtectionAlertCopy(language).open).toBeTruthy()
+      expect(getProtectionAlertCopy(language).dontOpen).toBeTruthy()
+    }
 
     const protectedMedia = [
       {

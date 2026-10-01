@@ -8,7 +8,7 @@ export const SUPPORTED_LANGUAGES = [
 ] as const
 
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]["code"]
-export type DetectionPrediction = "SAFE" | "SUSPICIOUS" | "SCAM"
+export type DetectionPrediction = "SAFE" | "SPAM" | "SUSPICIOUS" | "SCAM"
 export type ExplanationIndicator =
   | "urgency"
   | "otp"
@@ -44,31 +44,32 @@ interface DetectionCopy {
   result: Record<DetectionPrediction, string>
   riskLevel: string
   riskScore: string
-  warning: Record<"SAFE" | "SUSPICIOUS" | "SCAM", string>
+  warning: Record<DetectionPrediction, string>
   explanation: Record<DetectionPrediction, string>
   verified: string
   whyButton: string
   speakExplanation: string
-  detectedTitle: Record<"SUSPICIOUS" | "SCAM", string>
+  detectedTitle: Record<"SPAM" | "SUSPICIOUS" | "SCAM", string>
   indicators: Record<ExplanationIndicator, string>
-  whyFallback: Record<"SUSPICIOUS" | "SCAM", string>
+  whyFallback: Record<"SPAM" | "SUSPICIOUS" | "SCAM", string>
 }
 
 const COPY: Record<LanguageCode, DetectionCopy> = {
   en: {
-    result: { SAFE: "Safe", SUSPICIOUS: "Suspicious", SCAM: "Scam" },
+    result: { SAFE: "Safe", SPAM: "Spam", SUSPICIOUS: "Suspicious", SCAM: "Scam" },
     riskLevel: "Risk level",
     riskScore: "Risk score",
-    warning: { SAFE: "Safe message", SUSPICIOUS: "Suspicious activity alert", SCAM: "Scam alert" },
+    warning: { SAFE: "Safe message", SPAM: "Spam alert", SUSPICIOUS: "Suspicious activity alert", SCAM: "Scam alert" },
     explanation: {
       SAFE: "Trinetra AI did not find suspicious patterns in this message.",
+      SPAM: "Trinetra AI classified this message as spam.",
       SUSPICIOUS: "Trinetra AI found patterns that may indicate a risky request.",
       SCAM: "Trinetra AI detected patterns that may indicate a scam.",
     },
     verified: "Verified by Trinetra AI",
     whyButton: "Why?",
     speakExplanation: "Speak Explanation",
-    detectedTitle: { SUSPICIOUS: "Suspicious Detected", SCAM: "Scam Detected" },
+    detectedTitle: { SPAM: "Spam Detected", SUSPICIOUS: "Suspicious Detected", SCAM: "Scam Detected" },
     indicators: {
       urgency: "The message creates urgency.",
       otp: "It asks for an OTP, PIN, or password.",
@@ -80,24 +81,26 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "It contains a QR code or payment payload.",
     },
     whyFallback: {
+      SPAM: "Trinetra AI flagged this specific message as spam. No extra pattern details were returned for this text.",
       SUSPICIOUS: "Trinetra AI flagged this specific message as suspicious. No extra pattern details were returned for this text.",
       SCAM: "Trinetra AI flagged this specific message as a scam. No extra pattern details were returned for this text.",
     },
   },
   hi: {
-    result: { SAFE: "सुरक्षित", SUSPICIOUS: "संदिग्ध", SCAM: "घोटाला" },
+    result: { SAFE: "सुरक्षित", SPAM: "स्पैम", SUSPICIOUS: "संदिग्ध", SCAM: "घोटाला" },
     riskLevel: "जोखिम स्तर",
     riskScore: "जोखिम स्कोर",
-    warning: { SAFE: "सुरक्षित संदेश", SUSPICIOUS: "संदिग्ध गतिविधि चेतावनी", SCAM: "घोटाला चेतावनी" },
+    warning: { SAFE: "सुरक्षित संदेश", SPAM: "स्पैम चेतावनी", SUSPICIOUS: "संदिग्ध गतिविधि चेतावनी", SCAM: "घोटाला चेतावनी" },
     explanation: {
       SAFE: "Trinetra AI को इस संदेश में संदिग्ध पैटर्न नहीं मिले।",
+      SPAM: "Trinetra AI ने इस संदेश को स्पैम के रूप में वर्गीकृत किया।",
       SUSPICIOUS: "Trinetra AI को ऐसे पैटर्न मिले जो जोखिम भरे अनुरोध का संकेत दे सकते हैं।",
       SCAM: "Trinetra AI ने ऐसे पैटर्न पाए जो घोटाले का संकेत दे सकते हैं।",
     },
     verified: "Trinetra AI द्वारा सत्यापित",
     whyButton: "क्यों?",
     speakExplanation: "व्याख्या सुनें",
-    detectedTitle: { SUSPICIOUS: "संदिग्ध संदेश मिला", SCAM: "घोटाला पाया गया" },
+    detectedTitle: { SPAM: "स्पैम संदेश मिला", SUSPICIOUS: "संदिग्ध संदेश मिला", SCAM: "घोटाला पाया गया" },
     indicators: {
       urgency: "यह संदेश जल्दबाजी पैदा करता है।",
       otp: "यह OTP, PIN या पासवर्ड मांगता है।",
@@ -109,24 +112,26 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "इसमें QR कोड या भुगतान जानकारी है।",
     },
     whyFallback: {
+      SPAM: "Trinetra AI ने इस संदेश को स्पैम चिह्नित किया। इस पाठ के लिए अतिरिक्त पैटर्न विवरण नहीं मिला।",
       SUSPICIOUS: "Trinetra AI ने इस संदेश को संदिग्ध चिह्नित किया। इस पाठ के लिए अतिरिक्त पैटर्न विवरण नहीं मिला।",
       SCAM: "Trinetra AI ने इस संदेश को घोटाला चिह्नित किया। इस पाठ के लिए अतिरिक्त पैटर्न विवरण नहीं मिला।",
     },
   },
   kn: {
-    result: { SAFE: "ಸುರಕ್ಷಿತ", SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ", SCAM: "ವಂಚನೆ" },
+    result: { SAFE: "ಸುರಕ್ಷಿತ", SPAM: "ಸ್ಪ್ಯಾಮ್", SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ", SCAM: "ವಂಚನೆ" },
     riskLevel: "ಅಪಾಯದ ಮಟ್ಟ",
     riskScore: "ಅಪಾಯದ ಸ್ಕೋರ್",
-    warning: { SAFE: "ಸುರಕ್ಷಿತ ಸಂದೇಶ", SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ ಚಟುವಟಿಕೆ ಎಚ್ಚರಿಕೆ", SCAM: "ವಂಚನೆ ಎಚ್ಚರಿಕೆ" },
+    warning: { SAFE: "ಸುರಕ್ಷಿತ ಸಂದೇಶ", SPAM: "ಸ್ಪ್ಯಾಮ್ ಎಚ್ಚರಿಕೆ", SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ ಚಟುವಟಿಕೆ ಎಚ್ಚರಿಕೆ", SCAM: "ವಂಚನೆ ಎಚ್ಚರಿಕೆ" },
     explanation: {
       SAFE: "ಈ ಸಂದೇಶದಲ್ಲಿ ಅನುಮಾನಾಸ್ಪದ ಮಾದರಿಗಳು ಕಂಡುಬಂದಿಲ್ಲ ಎಂದು Trinetra AI ತಿಳಿಸಿದೆ.",
+      SPAM: "Trinetra AI ಈ ಸಂದೇಶವನ್ನು ಸ್ಪ್ಯಾಮ್ ಎಂದು ವರ್ಗೀಕರಿಸಿದೆ.",
       SUSPICIOUS: "ಅಪಾಯಕಾರಿ ವಿನಂತಿಯನ್ನು ಸೂಚಿಸಬಹುದಾದ ಮಾದರಿಗಳನ್ನು Trinetra AI ಕಂಡುಹಿಡಿದಿದೆ.",
       SCAM: "ವಂಚನೆಯನ್ನು ಸೂಚಿಸಬಹುದಾದ ಮಾದರಿಗಳನ್ನು Trinetra AI ಕಂಡುಹಿಡಿದಿದೆ.",
     },
     verified: "Trinetra AI ಮೂಲಕ ಪರಿಶೀಲಿಸಲಾಗಿದೆ",
     whyButton: "ಯಾಕೆ?",
     speakExplanation: "ವಿವರಣೆಯನ್ನು ಕೇಳಿ",
-    detectedTitle: { SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ ಸಂದೇಶ ಪತ್ತೆಯಾಗಿದೆ", SCAM: "ವಂಚನೆ ಪತ್ತೆಯಾಗಿದೆ" },
+    detectedTitle: { SPAM: "ಸ್ಪ್ಯಾಮ್ ಸಂದೇಶ ಪತ್ತೆಯಾಗಿದೆ", SUSPICIOUS: "ಅನುಮಾನಾಸ್ಪದ ಸಂದೇಶ ಪತ್ತೆಯಾಗಿದೆ", SCAM: "ವಂಚನೆ ಪತ್ತೆಯಾಗಿದೆ" },
     indicators: {
       urgency: "ಈ ಸಂದೇಶವು ತುರ್ತು ಭಾವನೆ ಉಂಟುಮಾಡುತ್ತದೆ.",
       otp: "ಇದು OTP, PIN ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್ ಕೇಳುತ್ತದೆ.",
@@ -138,24 +143,26 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "ಇದರಲ್ಲಿ QR ಕೋಡ್ ಅಥವಾ ಪಾವತಿ ಮಾಹಿತಿ ಇದೆ.",
     },
     whyFallback: {
+      SPAM: "Trinetra AI ಈ ಸಂದೇಶವನ್ನು ಸ್ಪ್ಯಾಮ್ ಎಂದು ಗುರುತಿಸಿದೆ. ಹೆಚ್ಚಿನ ಮಾದರಿ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ.",
       SUSPICIOUS: "Trinetra AI ಈ ನಿರ್ದಿಷ್ಟ ಸಂದೇಶವನ್ನು ಅನುಮಾನಾಸ್ಪದ ಎಂದು ಗುರುತಿಸಿದೆ. ಹೆಚ್ಚಿನ ಮಾದರಿ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ.",
       SCAM: "Trinetra AI ಈ ನಿರ್ದಿಷ್ಟ ಸಂದೇಶವನ್ನು ವಂಚನೆ ಎಂದು ಗುರುತಿಸಿದೆ. ಹೆಚ್ಚಿನ ಮಾದರಿ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ.",
     },
   },
   te: {
-    result: { SAFE: "సురక్షితం", SUSPICIOUS: "అనుమానాస్పదం", SCAM: "మోసం" },
+    result: { SAFE: "సురక్షితం", SPAM: "స్పామ్", SUSPICIOUS: "అనుమానాస్పదం", SCAM: "మోసం" },
     riskLevel: "ప్రమాద స్థాయి",
     riskScore: "ప్రమాద స్కోర్",
-    warning: { SAFE: "సురక్షిత సందేశం", SUSPICIOUS: "అనుమానాస్పద కార్యకలాప హెచ్చరిక", SCAM: "మోసం హెచ్చరిక" },
+    warning: { SAFE: "సురక్షిత సందేశం", SPAM: "స్పామ్ హెచ్చరిక", SUSPICIOUS: "అనుమానాస్పద కార్యకలాప హెచ్చరిక", SCAM: "మోసం హెచ్చరిక" },
     explanation: {
       SAFE: "ఈ సందేశంలో అనుమానాస్పద నమూనాలు కనిపించలేదని Trinetra AI గుర్తించింది.",
+      SPAM: "Trinetra AI ఈ సందేశాన్ని స్పామ్‌గా వర్గీకరించింది.",
       SUSPICIOUS: "ప్రమాదకరమైన అభ్యర్థనను సూచించే నమూనాలను Trinetra AI గుర్తించింది.",
       SCAM: "మోసాన్ని సూచించే నమూనాలను Trinetra AI గుర్తించింది.",
     },
     verified: "Trinetra AI ద్వారా ధృవీకరించబడింది",
     whyButton: "ఎందుకు?",
     speakExplanation: "వివరణను వినండి",
-    detectedTitle: { SUSPICIOUS: "అనుమానాస్పద సందేశం కనిపించింది", SCAM: "మోసం కనిపించింది" },
+    detectedTitle: { SPAM: "స్పామ్ సందేశం కనిపించింది", SUSPICIOUS: "అనుమానాస్పద సందేశం కనిపించింది", SCAM: "మోసం కనిపించింది" },
     indicators: {
       urgency: "ఈ సందేశం అత్యవసరతను కలిగిస్తుంది.",
       otp: "ఇది OTP, PIN లేదా పాస్‌వర్డ్ అడుగుతుంది.",
@@ -167,24 +174,26 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "ఇందులో QR కోడ్ లేదా చెల్లింపు సమాచారం ఉంది.",
     },
     whyFallback: {
+      SPAM: "Trinetra AI ఈ సందేశాన్ని స్పామ్‌గా గుర్తించింది. అదనపు నమూనా వివరాలు రాలేదు.",
       SUSPICIOUS: "Trinetra AI ఈ సందేశాన్ని అనుమానాస్పదంగా గుర్తించింది. అదనపు నమూనా వివరాలు రాలేదు.",
       SCAM: "Trinetra AI ఈ సందేశాన్ని మోసంగా గుర్తించింది. అదనపు నమూనా వివరాలు రాలేదు.",
     },
   },
   ta: {
-    result: { SAFE: "பாதுகாப்பானது", SUSPICIOUS: "சந்தேகத்திற்குரியது", SCAM: "மோசடி" },
+    result: { SAFE: "பாதுகாப்பானது", SPAM: "ஸ்பேம்", SUSPICIOUS: "சந்தேகத்திற்குரியது", SCAM: "மோசடி" },
     riskLevel: "ஆபத்து நிலை",
     riskScore: "ஆபத்து மதிப்பெண்",
-    warning: { SAFE: "பாதுகாப்பான செய்தி", SUSPICIOUS: "சந்தேகமான செயல்பாட்டு எச்சரிக்கை", SCAM: "மோசடி எச்சரிக்கை" },
+    warning: { SAFE: "பாதுகாப்பான செய்தி", SPAM: "ஸ்பேம் எச்சரிக்கை", SUSPICIOUS: "சந்தேகமான செயல்பாட்டு எச்சரிக்கை", SCAM: "மோசடி எச்சரிக்கை" },
     explanation: {
       SAFE: "இந்தச் செய்தியில் சந்தேகத்திற்குரிய வடிவங்கள் இல்லை என Trinetra AI கண்டறிந்தது.",
+      SPAM: "Trinetra AI இந்தச் செய்தியை ஸ்பேம் என வகைப்படுத்தியது.",
       SUSPICIOUS: "ஆபத்தான கோரிக்கையைக் குறிக்கக்கூடிய வடிவங்களை Trinetra AI கண்டறிந்தது.",
       SCAM: "மோசடியைக் குறிக்கக்கூடிய வடிவங்களை Trinetra AI கண்டறிந்தது.",
     },
     verified: "Trinetra AI மூலம் சரிபார்க்கப்பட்டது",
     whyButton: "ஏன்?",
     speakExplanation: "விளக்கத்தைக் கேளுங்கள்",
-    detectedTitle: { SUSPICIOUS: "சந்தேகமான செய்தி கண்டறியப்பட்டது", SCAM: "மோசடி கண்டறியப்பட்டது" },
+    detectedTitle: { SPAM: "ஸ்பேம் செய்தி கண்டறியப்பட்டது", SUSPICIOUS: "சந்தேகமான செய்தி கண்டறியப்பட்டது", SCAM: "மோசடி கண்டறியப்பட்டது" },
     indicators: {
       urgency: "இந்தச் செய்தி அவசரத்தை உருவாக்குகிறது.",
       otp: "இது OTP, PIN அல்லது கடவுச்சொல்லைக் கேட்கிறது.",
@@ -196,24 +205,26 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "இதில் QR குறியீடு அல்லது கட்டணத் தகவல் உள்ளது.",
     },
     whyFallback: {
+      SPAM: "Trinetra AI இந்தச் செய்தியை ஸ்பேமாகக் குறித்தது. கூடுதல் வடிவ விவரங்கள் வரவில்லை.",
       SUSPICIOUS: "Trinetra AI இந்தச் செய்தியை சந்தேகமானதாகக் குறித்தது. கூடுதல் வடிவ விவரங்கள் வரவில்லை.",
       SCAM: "Trinetra AI இந்தச் செய்தியை மோசடியாகக் குறித்தது. கூடுதல் வடிவ விவரங்கள் வரவில்லை.",
     },
   },
   ml: {
-    result: { SAFE: "സുരക്ഷിതം", SUSPICIOUS: "സംശയാസ്പദം", SCAM: "തട്ടിപ്പ്" },
+    result: { SAFE: "സുരക്ഷിതം", SPAM: "സ്പാം", SUSPICIOUS: "സംശയാസ്പദം", SCAM: "തട്ടിപ്പ്" },
     riskLevel: "അപകട നില",
     riskScore: "അപകട സ്കോർ",
-    warning: { SAFE: "സുരക്ഷിത സന്ദേശം", SUSPICIOUS: "സംശയാസ്പദ പ്രവർത്തന മുന്നറിയിപ്പ്", SCAM: "തട്ടിപ്പ് മുന്നറിയിപ്പ്" },
+    warning: { SAFE: "സുരക്ഷിത സന്ദേശം", SPAM: "സ്പാം മുന്നറിയിപ്പ്", SUSPICIOUS: "സംശയാസ്പദ പ്രവർത്തന മുന്നറിയിപ്പ്", SCAM: "തട്ടിപ്പ് മുന്നറിയിപ്പ്" },
     explanation: {
       SAFE: "ഈ സന്ദേശത്തിൽ സംശയാസ്പദമായ രീതികൾ കണ്ടെത്തിയില്ലെന്ന് Trinetra AI അറിയിച്ചു.",
+      SPAM: "Trinetra AI ഈ സന്ദേശത്തെ സ്പാം ആയി വർഗ്ഗീകരിച്ചു.",
       SUSPICIOUS: "അപകടകരമായ അഭ്യർത്ഥന സൂചിപ്പിക്കുന്ന രീതികൾ Trinetra AI കണ്ടെത്തി.",
       SCAM: "തട്ടിപ്പ് സൂചിപ്പിക്കുന്ന രീതികൾ Trinetra AI കണ്ടെത്തി.",
     },
     verified: "Trinetra AI പരിശോധിച്ചു",
     whyButton: "എന്തുകൊണ്ട്?",
     speakExplanation: "വിശദീകരണം കേൾക്കുക",
-    detectedTitle: { SUSPICIOUS: "സംശയാസ്പദ സന്ദേശം കണ്ടെത്തി", SCAM: "തട്ടിപ്പ് കണ്ടെത്തി" },
+    detectedTitle: { SPAM: "സ്പാം സന്ദേശം കണ്ടെത്തി", SUSPICIOUS: "സംശയാസ്പദ സന്ദേശം കണ്ടെത്തി", SCAM: "തട്ടിപ്പ് കണ്ടെത്തി" },
     indicators: {
       urgency: "ഈ സന്ദേശം അടിയന്തിരത ഉണ്ടാക്കുന്നു.",
       otp: "ഇത് OTP, PIN അല്ലെങ്കിൽ പാസ്‌വേഡ് ചോദിക്കുന്നു.",
@@ -225,10 +236,99 @@ const COPY: Record<LanguageCode, DetectionCopy> = {
       qr: "ഇതിൽ QR കോഡ് അല്ലെങ്കിൽ പേയ്‌മെന്റ് വിവരങ്ങൾ ഉണ്ട്.",
     },
     whyFallback: {
+      SPAM: "Trinetra AI ഈ സന്ദേശത്തെ സ്പാം ആയി അടയാളപ്പെടുത്തി. അധിക പാറ്റേൺ വിവരങ്ങൾ ലഭിച്ചില്ല.",
       SUSPICIOUS: "Trinetra AI ഈ സന്ദേശത്തെ സംശയാസ്പദമായി അടയാളപ്പെടുത്തി. അധിക പാറ്റേൺ വിവരങ്ങൾ ലഭിച്ചില്ല.",
       SCAM: "Trinetra AI ഈ സന്ദേശത്തെ തട്ടിപ്പായി അടയാളപ്പെടുത്തി. അധിക പാറ്റേൺ വിവരങ്ങൾ ലഭിച്ചില്ല.",
     },
   },
+}
+
+export interface ProtectionAlertCopy {
+  title: string
+  body: string
+  prompt: string
+  open: string
+  opening: string
+  dontOpen: string
+  remainsLocked: string
+  openError: string
+}
+
+const PROTECTION_ALERT_COPY: Record<LanguageCode, ProtectionAlertCopy> = {
+  en: {
+    title: "Trinetra Protection Alert",
+    body: "This message may be harmful or spam. Its content is hidden.",
+    prompt: "Do you want to open this message?",
+    open: "Open",
+    opening: "Opening…",
+    dontOpen: "Don't Open",
+    remainsLocked: "This message remains locked.",
+    openError: "Couldn't open this message. Try again.",
+  },
+  hi: {
+    title: "Trinetra सुरक्षा चेतावनी",
+    body: "यह संदेश हानिकारक या स्पैम हो सकता है। इसकी सामग्री छिपी हुई है।",
+    prompt: "क्या आप यह संदेश खोलना चाहते हैं?",
+    open: "खोलें",
+    opening: "खुल रहा है…",
+    dontOpen: "न खोलें",
+    remainsLocked: "यह संदेश लॉक रहेगा।",
+    openError: "संदेश नहीं खुला। फिर से कोशिश करें।",
+  },
+  kn: {
+    title: "Trinetra ರಕ್ಷಣಾ ಎಚ್ಚರಿಕೆ",
+    body: "ಈ ಸಂದೇಶ ಹಾನಿಕಾರಕ ಅಥವಾ ಸ್ಪ್ಯಾಮ್ ಆಗಿರಬಹುದು. ಇದರ ವಿಷಯವನ್ನು ಮರೆಮಾಡಲಾಗಿದೆ.",
+    prompt: "ಈ ಸಂದೇಶವನ್ನು ತೆರೆಯಲು ಬಯಸುವಿರಾ?",
+    open: "ತೆರೆ",
+    opening: "ತೆರೆಯಲಾಗುತ್ತಿದೆ…",
+    dontOpen: "ತೆರೆಯಬೇಡಿ",
+    remainsLocked: "ಈ ಸಂದೇಶ ಲಾಕ್ ಆಗಿಯೇ ಇರುತ್ತದೆ.",
+    openError: "ಸಂದೇಶ ತೆರೆಯಲಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+  },
+  te: {
+    title: "Trinetra రక్షణ హెచ్చరిక",
+    body: "ఈ సందేశం హానికరమైనది లేదా స్పామ్ కావచ్చు. దీని కంటెంట్ దాచబడింది.",
+    prompt: "ఈ సందేశాన్ని తెరవాలనుకుంటున్నారా?",
+    open: "తెరవండి",
+    opening: "తెరుస్తోంది…",
+    dontOpen: "తెరవవద్దు",
+    remainsLocked: "ఈ సందేశం లాక్‌లోనే ఉంటుంది.",
+    openError: "సందేశాన్ని తెరవలేకపోయాం. మళ్లీ ప్రయత్నించండి.",
+  },
+  ta: {
+    title: "Trinetra பாதுகாப்பு எச்சரிக்கை",
+    body: "இந்தச் செய்தி தீங்கு விளைவிக்கக்கூடியதாகவோ ஸ்பேமாகவோ இருக்கலாம். அதன் உள்ளடக்கம் மறைக்கப்பட்டுள்ளது.",
+    prompt: "இந்தச் செய்தியைத் திறக்க விரும்புகிறீர்களா?",
+    open: "திற",
+    opening: "திறக்கிறது…",
+    dontOpen: "திறக்க வேண்டாம்",
+    remainsLocked: "இந்தச் செய்தி பூட்டியே இருக்கும்.",
+    openError: "செய்தியைத் திறக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  },
+  ml: {
+    title: "Trinetra സംരക്ഷണ മുന്നറിയിപ്പ്",
+    body: "ഈ സന്ദേശം ഹാനികരമോ സ്പാമോ ആയിരിക്കാം. ഉള്ളടക്കം മറച്ചിരിക്കുന്നു.",
+    prompt: "ഈ സന്ദേശം തുറക്കണോ?",
+    open: "തുറക്കുക",
+    opening: "തുറക്കുന്നു…",
+    dontOpen: "തുറക്കരുത്",
+    remainsLocked: "ഈ സന്ദേശം ലോക്കിൽ തുടരും.",
+    openError: "സന്ദേശം തുറക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.",
+  },
+}
+
+export function getTrinetraLanguage(value: string | null | undefined): LanguageCode {
+  const normalized = value?.trim().toLowerCase().replaceAll("_", "-")
+  const languageCode = normalized?.split("-")[0]
+  if (SUPPORTED_LANGUAGES.some(({ code }) => code === languageCode)) {
+    return languageCode as LanguageCode
+  }
+  const matchedLanguage = SUPPORTED_LANGUAGES.find(({ name }) => name.toLowerCase() === normalized)
+  return matchedLanguage?.code ?? "en"
+}
+
+export function getProtectionAlertCopy(language: string | null | undefined): ProtectionAlertCopy {
+  return PROTECTION_ALERT_COPY[getTrinetraLanguage(language)]
 }
 
 export function getDetectionCopy(language: LanguageCode): DetectionCopy {

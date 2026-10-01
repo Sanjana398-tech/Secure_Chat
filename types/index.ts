@@ -69,6 +69,7 @@ export interface Message {
   trinetraReasons: string[]
   /** Language requested for the Trinetra explanation, when available */
   trinetraLanguage: string | null
+  trinetraScanId: string | null
   /** Speech-ready explanation returned by Trinetra, when available */
   trinetraSpeechText: string | null
   trinetraDetectionType: string | null
@@ -135,8 +136,8 @@ export interface OutgoingMessagePayload {
 
 /** Result returned by the Trinetra AI analysis endpoints */
 export interface TrinetraAnalysisResult {
-  detectionType: "message" | "url" | "upi" | "image" | "voice"
-  prediction: "SAFE" | "SUSPICIOUS" | "SCAM"
+  detectionType: "message" | "url" | "upi" | "image" | "voice" | "qr"
+  prediction: "SAFE" | "SPAM" | "SUSPICIOUS" | "SCAM"
   confidence: number
   risk: number | null
   alert?: string | null
@@ -150,6 +151,7 @@ export interface TrinetraAnalysisResult {
   reasons: string[]
   language: string | null
   speechText: string | null
+  scanId?: string | null
 }
 
 export interface ProcessedMessage extends MessageInput {

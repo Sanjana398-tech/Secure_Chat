@@ -238,6 +238,7 @@ export default function ChatArea({
         trinetraQrContent: null,
         trinetraReasons: [],
         trinetraLanguage: null,
+        trinetraScanId: null,
         trinetraSpeechText: null,
         trinetraDetectionType: null,
         trinetraRisk: null,

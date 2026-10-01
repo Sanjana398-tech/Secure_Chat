@@ -77,7 +77,7 @@ function moreRiskyResult(
 ): ProcessedMessage["trinetraResult"] {
   if (!first) return second
   if (!second) return first
-  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SCAM: 2 }
+  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SPAM: 2, SCAM: 3 }
   return riskRank[second.prediction] > riskRank[first.prediction] ? second : first
 }
 
@@ -213,14 +213,15 @@ async function saveMessage(processed: ProcessedMessage): Promise<Message> {
       trinetraConfidence: trinetra?.confidence ?? null,
       safeProbability: trinetra?.safeProbability ?? null,
       scamProbability: trinetra?.scamProbability ?? null,
-      isFlagged: trinetra?.prediction === "SCAM" ? true : false,
+      isFlagged: trinetra?.prediction === "SCAM" || trinetra?.prediction === "SPAM",
       analyzedAt: trinetra ? now : null,
       trinetraTranscription: processed.trinetraTranscription ?? null,
       trinetraOcrText: trinetra?.ocrText ?? null,
       trinetraDetectedUrls: JSON.stringify(trinetra?.detectedUrls ?? []),
       trinetraQrContent: trinetra?.qrContent ?? null,
       trinetraReasons: JSON.stringify(trinetra?.reasons ?? []),
-      trinetraLanguage: trinetra?.language ?? processed.language ?? null,
+      trinetraLanguage: trinetra?.language ?? "en",
+      trinetraScanId: trinetra?.scanId ?? null,
       trinetraSpeechText: trinetra?.speechText ?? null,
       trinetraDetectionType: trinetra?.detectionType ?? null,
       trinetraRisk: trinetra?.risk ?? null,

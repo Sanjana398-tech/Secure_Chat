@@ -96,6 +96,8 @@ interface DetectionResponse {
   language_code?: unknown
   speech_text?: unknown
   speechText?: unknown
+  scan_id?: unknown
+  scanId?: unknown
   error?: unknown
 }
 
@@ -336,7 +338,11 @@ async function requestJson(
         ? body as Record<string, unknown>
         : null,
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      reportDiagnostic(`TRINETRA_TIMEOUT after=${requestTimeoutMs}ms`)
+      throw new Error("TRINETRA_TIMEOUT")
+    }
     reportDiagnostic("TRINETRA_NETWORK_ERROR")
     throw new Error("TRINETRA_NETWORK_ERROR")
   } finally {
@@ -486,7 +492,7 @@ function findDetectionResult(
   if (typeof verdict === "string") return record
   const spamFlag = record.is_spam ?? record.isSpam ?? record.is_scam ?? record.isScam
   if (typeof spamFlag === "boolean") {
-    return { ...record, verdict: spamFlag ? "SPAM" : "NOT_SPAM" }
+    return { ...record, verdict: spamFlag ? "SPAM" : "SAFE" }
   }
 
   const envelopeKeys = [
@@ -534,14 +540,16 @@ export function normalizeTrinetraDetection(
     (typeof result.detection === "string" ? result.detection : undefined)
   if (typeof verdictValue !== "string") return null
   const verdict = verdictValue.trim().toUpperCase().replace(/[\s-]+/g, "_")
-  const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING", "SPAM"].includes(verdict)
+  const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"].includes(verdict)
     ? "SCAM"
+    : verdict === "SPAM"
+      ? "SPAM"
     : ["NOT_SPAM", "NON_SPAM", "HAM", "BENIGN", "CLEAN", "LEGITIMATE"].includes(verdict)
       ? "SAFE"
       : verdict === "WARNING"
       ? "SUSPICIOUS"
       : verdict
-  if (prediction !== "SAFE" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
+  if (prediction !== "SAFE" && prediction !== "SPAM" && prediction !== "SUSPICIOUS" && prediction !== "SCAM") return null
 
   const rawConfidence = result.confidence == null ? Number.NaN : Number(result.confidence)
   const confidence = Number.isFinite(rawConfidence) && rawConfidence >= 0 && rawConfidence <= 100
@@ -569,7 +577,7 @@ export function normalizeTrinetraDetection(
   const explanation = typeof result.explanation === "string"
     ? result.explanation.slice(0, MAX_TEXT_LENGTH)
     : reasons.join(" ").slice(0, MAX_TEXT_LENGTH) || null
-  const responseType = result.detection_type ?? result.type
+  const responseType = String(result.detection_type ?? result.type ?? "").toLowerCase()
   const detectedUrls = textArray(result.detected_urls ?? result.urls) ?? []
   const ocrText = [result.ocr_text, result.extracted_text, result.text]
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
@@ -582,8 +590,8 @@ export function normalizeTrinetraDetection(
 
   return {
     detectionType: responseType === "message" || responseType === "url" || responseType === "upi" ||
-      responseType === "image" || responseType === "voice"
-      ? responseType
+      responseType === "image" || responseType === "voice" || responseType === "qr"
+      ? responseType as DetectionType
       : requestedType,
     prediction,
     confidence,
@@ -599,6 +607,8 @@ export function normalizeTrinetraDetection(
     qrContent,
     language: typeof language === "string" ? language : null,
     speechText,
+    scanId: [result.scan_id, result.scanId]
+      .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null,
   }
 }
 
@@ -694,7 +704,7 @@ function moreRiskyResult(
 ): TrinetraAnalysisResult | null {
   if (!first) return second
   if (!second) return first
-  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SCAM: 2 }
+  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SPAM: 2, SCAM: 3 }
   return riskRank[second.prediction] > riskRank[first.prediction] ? second : first
 }
 
@@ -726,7 +736,7 @@ export async function analyzeTrinetraContent(
   content: string,
   language?: string,
 ): Promise<TrinetraAnalysisResult | null> {
-  if (type !== "message" && type !== "url" && type !== "upi") return null
+  if (type !== "message" && type !== "url" && type !== "upi" && type !== "qr") return null
   if (!content.trim() || content.length > MAX_CONTENT_LENGTH) return null
 
   const credentials = await getTrinetraCredentials(userId)
@@ -740,7 +750,11 @@ export async function analyzeTrinetraContent(
         "X-Secure-Chat-Key": credentials.apiKey,
         Authorization: `Bearer ${credentials.token}`,
       },
-      body: JSON.stringify({ type, text: content, ...(language ? { language } : {}) }),
+      body: JSON.stringify({
+        type: { message: "TEXT", url: "URL", upi: "UPI", qr: "QR" }[type],
+        text: content,
+        ...(language ? { language } : {}),
+      }),
     },
     requestTimeout(),
   )
@@ -776,9 +790,9 @@ export async function analyzeTrinetraMedia(
   if (credentials.linkedAccountId) form.append("user_id", credentials.linkedAccountId)
   if (language) form.append("language", language)
 
-  const endpoint = type === "image" ? "/api/analyze-screenshot" : "/api/analyze-voice"
+  form.append("type", type === "image" ? "IMAGE" : "VOICE")
   const response = await requestJson(
-    `${credentials.baseUrl}${endpoint}`,
+    `${credentials.baseUrl}/api/secure-chat/v1/detect`,
     {
       method: "POST",
       headers: {
@@ -828,6 +842,26 @@ export async function analyzeTrinetraMedia(
           qrContent: imageResult?.qrContent ?? responseQrContent,
         }
       : null
+  }
+
+  if (type === "image" && result?.qrContent) {
+    const imageResult = result
+    let qrResult: TrinetraAnalysisResult | null = null
+    try {
+      qrResult = await analyzeTrinetraContent(userId, "qr", result.qrContent, language)
+    } catch {
+      reportDiagnostic("TRINETRA_QR_SCAN_FAILED")
+    }
+    const combinedResult = moreRiskyResult(result, qrResult)
+    if (combinedResult) {
+      result = {
+        ...imageResult,
+        ...combinedResult,
+        qrContent: imageResult.qrContent,
+        ocrText: imageResult.ocrText,
+        detectedUrls: imageResult.detectedUrls,
+      }
+    }
   }
 
   if (type === "voice" && transcription) {

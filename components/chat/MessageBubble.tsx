@@ -4,6 +4,7 @@ import { formatMessageTime } from "@/lib/utils"
 import { isTrinetraProtectedPrediction } from "@/lib/trinetra-status"
 import {
   getDetectionCopy,
+  getProtectionAlertCopy,
   getSpeechAlert,
   type LanguageCode,
 } from "@/lib/localization"
@@ -75,7 +76,7 @@ export default function MessageBubble({
   const rawPrediction = message.trinetraPrediction?.trim().toUpperCase() ?? null
   const normalizedPrediction = rawPrediction?.replace(/[\s-]+/g, "_") ?? null
   const prediction = normalizedPrediction &&
-    ["SCAM", "SPAM", "FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"]
+    ["SCAM", "FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING"]
       .includes(normalizedPrediction)
     ? "SCAM"
     : normalizedPrediction &&
@@ -84,15 +85,18 @@ export default function MessageBubble({
       : normalizedPrediction === "WARNING"
         ? "SUSPICIOUS"
         : normalizedPrediction
-  const isScam = prediction === "SCAM" || (message.isFlagged === true && prediction !== "SUSPICIOUS")
+  const isSpam = prediction === "SPAM"
+  const isScam = prediction === "SCAM" ||
+    (message.isFlagged === true && prediction !== "SUSPICIOUS" && !isSpam)
   const isSuspicious = prediction === "SUSPICIOUS" && !isScam
   const isSafe = prediction === "SAFE" && !isScam
   const localizedPrediction =
-    isScam ? "SCAM" : isSuspicious ? "SUSPICIOUS" : isSafe ? "SAFE" : null
+    isSpam ? "SPAM" : isScam ? "SCAM" : isSuspicious ? "SUSPICIOUS" : isSafe ? "SAFE" : null
   const isLockedForReceiver =
     !isOwn && isTrinetraProtectedPrediction(message.trinetraPrediction) && !message.trinetraOpenedAt
   const alertLanguage = language
   const copy = getDetectionCopy(alertLanguage)
+  const protectionCopy = getProtectionAlertCopy(message.trinetraLanguage)
   const whyCopy = getDetectionCopy(language)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [ttsError, setTtsError] = useState<string | null>(null)
@@ -114,7 +118,7 @@ export default function MessageBubble({
     ? getSpeechAlert(alertLanguage, localizedPrediction)
     : null
   const flaggedPrediction =
-    localizedPrediction === "SCAM" || localizedPrediction === "SUSPICIOUS"
+    localizedPrediction === "SCAM" || localizedPrediction === "SPAM" || localizedPrediction === "SUSPICIOUS"
       ? localizedPrediction
       : null
   const flaggedDetails = [...new Set([
@@ -148,7 +152,7 @@ export default function MessageBubble({
     setOpenError(null)
     const opened = await onOpenProtectedMessage(message.id)
     setIsOpening(false)
-    if (!opened) setOpenError("Couldn't open this message. Try again.")
+    if (!opened) setOpenError(protectionCopy.openError)
   }
 
   // Clear any stale TTS error when the user changes language
@@ -174,7 +178,7 @@ export default function MessageBubble({
       : "rounded-[1.1rem] rounded-bl-sm bg-[--bubble-in-bg,oklch(0.24_0_0)] text-[--bubble-in-fg,oklch(0.985_0_0)]"
     }
     ${isTemp ? "opacity-70" : ""}
-    ${isScam && isAnalyzed ? "ring-1 ring-red-500/40" : ""}
+    ${(isScam || isSpam) && isAnalyzed ? "ring-1 ring-red-500/40" : ""}
     ${isSuspicious && isAnalyzed ? "ring-1 ring-amber-500/40" : ""}
   `
 
@@ -201,7 +205,7 @@ export default function MessageBubble({
               </button>
             </span>
           )}
-          {isScam && isAnalyzed && (
+          {(isScam || isSpam) && isAnalyzed && (
             <span className="flex items-center gap-0.5 text-[10px] text-red-300 select-none">
               <ShieldAlert className="size-3" />
               {localizedPrediction && copy.result[localizedPrediction]}
@@ -267,14 +271,14 @@ export default function MessageBubble({
           <div className="w-full rounded-lg border border-red-500/40 bg-red-950/80 px-3 py-3 text-red-100">
             <div className="mb-2 flex items-center gap-1.5">
               <ShieldAlert className="size-4 flex-shrink-0 text-red-400" />
-              <span className="text-xs font-bold text-red-300">Trinetra Protection Alert</span>
+              <span className="text-xs font-bold text-red-300">{protectionCopy.title}</span>
             </div>
             <p className="text-xs leading-relaxed">
-              This message was detected as potentially harmful or spam. Its content is hidden.
+              {protectionCopy.body}
             </p>
-            <p className="mt-2 text-xs">Do you want to open this message?</p>
+            <p className="mt-2 text-xs">{protectionCopy.prompt}</p>
             {keptClosed ? (
-              <p className="mt-3 text-xs text-red-200">This message remains locked.</p>
+              <p className="mt-3 text-xs text-red-200">{protectionCopy.remainsLocked}</p>
             ) : (
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
@@ -283,7 +287,7 @@ export default function MessageBubble({
                   disabled={isOpening}
                   className="rounded-md bg-red-300 px-3 py-1.5 text-xs font-semibold text-red-950 hover:bg-red-200 disabled:opacity-60"
                 >
-                  {isOpening ? "Opening…" : "Open Message"}
+                  {isOpening ? protectionCopy.opening : protectionCopy.open}
                 </button>
                 <button
                   type="button"
@@ -291,7 +295,7 @@ export default function MessageBubble({
                   disabled={isOpening}
                   className="rounded-md border border-red-300/40 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900 disabled:opacity-60"
                 >
-                  Don&apos;t Open
+                  {protectionCopy.dontOpen}
                 </button>
               </div>
             )}
@@ -313,10 +317,10 @@ export default function MessageBubble({
         }`}
       >
         {/* ── Fraud alert + Why? ─────────────────────────────────────── */}
-        {(isScam || isSuspicious) && isAnalyzed && flaggedPrediction && (
+        {(isScam || isSpam || isSuspicious) && isAnalyzed && flaggedPrediction && (
           <div
             className={`w-full rounded-lg px-3 py-2 ${
-              isScam
+              isScam || isSpam
                 ? "bg-red-950/80 border border-red-500/40 text-red-200"
                 : "bg-amber-950/80 border border-amber-500/40 text-amber-100"
             }`}
@@ -324,15 +328,15 @@ export default function MessageBubble({
             <div className="flex items-center gap-1.5 mb-2">
               <ShieldAlert
                 className={`size-3.5 flex-shrink-0 ${
-                  isScam ? "text-red-400" : "text-amber-400"
+                  isScam || isSpam ? "text-red-400" : "text-amber-400"
                 }`}
               />
               <span
                 className={`text-[11px] font-bold uppercase tracking-wide ${
-                  isScam ? "text-red-400" : "text-amber-400"
+                  isScam || isSpam ? "text-red-400" : "text-amber-400"
                 }`}
               >
-                {isScam ? "🔴 " : "🟠 "}
+                {isScam || isSpam ? "🔴 " : "🟠 "}
                 {whyCopy.detectedTitle[flaggedPrediction]}
               </span>
             </div>

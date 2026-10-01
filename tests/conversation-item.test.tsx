@@ -30,6 +30,7 @@ function conversation(message: Partial<Message> & Pick<Message, "content" | "tri
     trinetraQrContent: null,
     trinetraReasons: [],
     trinetraLanguage: "en",
+    trinetraScanId: null,
     trinetraSpeechText: null,
     trinetraDetectionType: "message",
     trinetraRisk: 95,
