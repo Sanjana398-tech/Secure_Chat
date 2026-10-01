@@ -135,7 +135,7 @@ export interface OutgoingMessagePayload {
 
 /** Result returned by the Trinetra AI analysis endpoints */
 export interface TrinetraAnalysisResult {
-  detectionType: "message" | "url" | "upi"
+  detectionType: "message" | "url" | "upi" | "image" | "voice"
   prediction: "SAFE" | "SUSPICIOUS" | "SCAM"
   confidence: number
   risk: number | null

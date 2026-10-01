@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "crypto"
+import { get as getBlob } from "@vercel/blob"
 import { and, eq, gt } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { trinetraIntegration } from "@/lib/db/schema"
@@ -14,6 +15,14 @@ const MAX_REASON_COUNT = 20
 const MAX_TEXT_LENGTH = 1000
 
 type DetectionType = TrinetraAnalysisResult["detectionType"]
+type MediaDetectionType = Extract<DetectionType, "image" | "voice">
+
+interface TrinetraCredentials {
+  baseUrl: string
+  apiKey: string
+  token: string
+  linkedAccountId: string | null
+}
 
 class TrinetraConfigurationError extends Error {}
 
@@ -73,7 +82,44 @@ interface DetectionResponse {
   scam_probability?: unknown
   type?: unknown
   detection_type?: unknown
+  transcription?: unknown
+  ocr_text?: unknown
+  extracted_text?: unknown
+  text?: unknown
+  detected_urls?: unknown
+  urls?: unknown
+  qr_content?: unknown
+  qr_data?: unknown
+  decoded_content?: unknown
+  content?: unknown
+  language?: unknown
+  language_code?: unknown
+  speech_text?: unknown
+  speechText?: unknown
   error?: unknown
+}
+
+interface UploadedMedia {
+  buffer: Buffer
+  filename: string
+  contentType: string
+}
+
+const MEDIA_FILENAME_RE = /^[a-f0-9]{32}\.(png|jpe?g|webp|gif|webm|ogg|mp3|wav|m4a|mp4)$/i
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"])
+const AUDIO_EXTENSIONS = new Set(["webm", "ogg", "mp3", "wav", "m4a", "mp4"])
+const MEDIA_MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  webm: "audio/webm",
+  ogg: "audio/ogg",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  mp4: "audio/mp4",
 }
 
 function getConfig() {
@@ -524,9 +570,19 @@ export function normalizeTrinetraDetection(
     ? result.explanation.slice(0, MAX_TEXT_LENGTH)
     : reasons.join(" ").slice(0, MAX_TEXT_LENGTH) || null
   const responseType = result.detection_type ?? result.type
+  const detectedUrls = textArray(result.detected_urls ?? result.urls) ?? []
+  const ocrText = [result.ocr_text, result.extracted_text, result.text]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
+  const qrContent = [result.qr_content, result.qr_data, result.decoded_content, result.content]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
+  const language = [result.language, result.language_code]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
+  const speechText = [result.speech_text, result.speechText]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
 
   return {
-    detectionType: responseType === "message" || responseType === "url" || responseType === "upi"
+    detectionType: responseType === "message" || responseType === "url" || responseType === "upi" ||
+      responseType === "image" || responseType === "voice"
       ? responseType
       : requestedType,
     prediction,
@@ -538,11 +594,11 @@ export function normalizeTrinetraDetection(
     explanation,
     reasons,
     tips,
-    ocrText: null,
-    detectedUrls: [],
-    qrContent: null,
-    language: null,
-    speechText: null,
+    ocrText,
+    detectedUrls,
+    qrContent,
+    language: typeof language === "string" ? language : null,
+    speechText,
   }
 }
 
@@ -554,20 +610,13 @@ function normalizedProbability(value: unknown): number | null {
     : null
 }
 
-export async function analyzeTrinetraContent(
-  userId: string,
-  type: DetectionType,
-  content: string,
-  language?: string,
-): Promise<TrinetraAnalysisResult | null> {
-  if (type !== "message" && type !== "url" && type !== "upi") return null
-  if (!content.trim() || content.length > MAX_CONTENT_LENGTH) return null
-
+async function getTrinetraCredentials(userId: string): Promise<TrinetraCredentials | null> {
   const [row] = await db
     .select()
     .from(trinetraIntegration)
     .where(eq(trinetraIntegration.userId, userId))
     .limit(1)
+
   if (!row) {
     reportDiagnostic("TRINETRA_LINK_MISSING")
     return null
@@ -596,14 +645,100 @@ export async function analyzeTrinetraContent(
   }
 
   const { baseUrl, apiKey } = getConfig()
+  return { baseUrl, apiKey, token, linkedAccountId: row.linkedAccountId }
+}
+
+async function readUploadedMedia(
+  mediaUrl: string,
+  type: MediaDetectionType,
+): Promise<UploadedMedia | null> {
+  const match = /^\/api\/files\/([^/]+)$/.exec(mediaUrl)
+  const filename = match?.[1]
+  if (!filename || !MEDIA_FILENAME_RE.test(filename)) {
+    reportDiagnostic("TRINETRA_MEDIA_INVALID_URL")
+    return null
+  }
+
+  const extension = filename.split(".").pop()?.toLowerCase() ?? ""
+  const allowedExtensions = type === "image" ? IMAGE_EXTENSIONS : AUDIO_EXTENSIONS
+  if (!allowedExtensions.has(extension)) {
+    reportDiagnostic("TRINETRA_MEDIA_TYPE_MISMATCH")
+    return null
+  }
+
+  try {
+    const blob = await getBlob(filename, { access: "private" })
+    if (!blob) {
+      reportDiagnostic("TRINETRA_MEDIA_NOT_FOUND")
+      return null
+    }
+    const buffer = Buffer.from(await new Response(blob.stream).arrayBuffer())
+    if (buffer.length === 0) {
+      reportDiagnostic("TRINETRA_MEDIA_EMPTY")
+      return null
+    }
+    return {
+      buffer,
+      filename,
+      contentType: blob.blob.contentType || MEDIA_MIME_BY_EXT[extension] || "application/octet-stream",
+    }
+  } catch {
+    reportDiagnostic("TRINETRA_MEDIA_READ_FAILED")
+    return null
+  }
+}
+
+function moreRiskyResult(
+  first: TrinetraAnalysisResult | null,
+  second: TrinetraAnalysisResult | null,
+): TrinetraAnalysisResult | null {
+  if (!first) return second
+  if (!second) return first
+  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SCAM: 2 }
+  return riskRank[second.prediction] > riskRank[first.prediction] ? second : first
+}
+
+function findStringField(value: unknown, fields: readonly string[], depth = 0): string | null {
+  if (!value || typeof value !== "object" || depth > 5) return null
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStringField(item, fields, depth + 1)
+      if (found) return found
+    }
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  for (const field of fields) {
+    const candidate = record[field]
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim()
+  }
+  for (const nested of Object.values(record)) {
+    const found = findStringField(nested, fields, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
+export async function analyzeTrinetraContent(
+  userId: string,
+  type: DetectionType,
+  content: string,
+  language?: string,
+): Promise<TrinetraAnalysisResult | null> {
+  if (type !== "message" && type !== "url" && type !== "upi") return null
+  if (!content.trim() || content.length > MAX_CONTENT_LENGTH) return null
+
+  const credentials = await getTrinetraCredentials(userId)
+  if (!credentials) return null
   const response = await requestJson(
-    `${baseUrl}/api/secure-chat/v1/detect`,
+    `${credentials.baseUrl}/api/secure-chat/v1/detect`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Secure-Chat-Key": apiKey,
-        Authorization: `Bearer ${token}`,
+        "X-Secure-Chat-Key": credentials.apiKey,
+        Authorization: `Bearer ${credentials.token}`,
       },
       body: JSON.stringify({ type, text: content, ...(language ? { language } : {}) }),
     },
@@ -621,6 +756,92 @@ export async function analyzeTrinetraContent(
     )
   }
   return result
+}
+
+export async function analyzeTrinetraMedia(
+  userId: string,
+  type: MediaDetectionType,
+  mediaUrl: string,
+  language?: string,
+): Promise<{ result: TrinetraAnalysisResult | null; transcription: string | null }> {
+  const media = await readUploadedMedia(mediaUrl, type)
+  if (!media) return { result: null, transcription: null }
+
+  const credentials = await getTrinetraCredentials(userId)
+  if (!credentials) return { result: null, transcription: null }
+
+  const form = new FormData()
+  const mediaField = type === "image" ? "image" : "audio"
+  form.append(mediaField, new Blob([new Uint8Array(media.buffer)], { type: media.contentType }), media.filename)
+  if (credentials.linkedAccountId) form.append("user_id", credentials.linkedAccountId)
+  if (language) form.append("language", language)
+
+  const endpoint = type === "image" ? "/api/analyze-screenshot" : "/api/analyze-voice"
+  const response = await requestJson(
+    `${credentials.baseUrl}${endpoint}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Secure-Chat-Key": credentials.apiKey,
+        Authorization: `Bearer ${credentials.token}`,
+      },
+      body: form,
+    },
+    requestTimeout(),
+  )
+
+  if (!response.body) {
+    reportDiagnostic("TRINETRA_INVALID_MEDIA_RESPONSE")
+    return { result: null, transcription: null }
+  }
+
+  const transcription = findStringField(response.body, ["transcription"])
+  let result = normalizeTrinetraDetection(response.body as DetectionResponse, type)
+
+  const responseOcrText = type === "image"
+    ? findStringField(response.body, ["ocr_text", "extracted_text", "text"])
+    : null
+  const responseDetectedUrls = type === "image"
+    ? textArray(findDetectionResult(response.body)?.detected_urls ?? findDetectionResult(response.body)?.urls) ?? []
+    : []
+  const responseQrContent = type === "image"
+    ? findStringField(response.body, ["qr_content", "qr_data", "decoded_content"])
+    : null
+
+  if (type === "image" && (result?.ocrText?.trim() || responseOcrText)) {
+    const imageResult = result
+    const ocrText = imageResult?.ocrText ?? responseOcrText
+    let ocrResult: TrinetraAnalysisResult | null = null
+    try {
+      if (ocrText) ocrResult = await analyzeTrinetraContent(userId, "message", ocrText, language)
+    } catch {
+      reportDiagnostic("TRINETRA_OCR_TEXT_SCAN_FAILED")
+    }
+    const combinedResult = moreRiskyResult(result, ocrResult)
+    result = combinedResult
+      ? {
+          ...(imageResult ?? combinedResult),
+          ...combinedResult,
+          detectionType: "image",
+          ocrText,
+          detectedUrls: imageResult?.detectedUrls.length ? imageResult.detectedUrls : responseDetectedUrls,
+          qrContent: imageResult?.qrContent ?? responseQrContent,
+        }
+      : null
+  }
+
+  if (type === "voice" && transcription) {
+    let transcriptResult: TrinetraAnalysisResult | null = null
+    try {
+      transcriptResult = await analyzeTrinetraContent(userId, "message", transcription, language)
+    } catch {
+      reportDiagnostic("TRINETRA_TRANSCRIPT_SCAN_FAILED")
+    }
+    const combinedResult = moreRiskyResult(result, transcriptResult)
+    result = combinedResult ? { ...combinedResult, detectionType: "voice" } : null
+  }
+
+  return { result, transcription }
 }
 
 export const TRINETRA_MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH

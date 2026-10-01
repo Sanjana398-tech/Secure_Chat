@@ -8,8 +8,9 @@ const mocks = vi.hoisted(() => {
   }
   const getTrinetraProtectionStatus = vi.fn()
   const analyzeTrinetraContent = vi.fn()
+  const analyzeTrinetraMedia = vi.fn()
   const broadcast = vi.fn()
-  return { db, getTrinetraProtectionStatus, analyzeTrinetraContent, broadcast }
+  return { db, getTrinetraProtectionStatus, analyzeTrinetraContent, analyzeTrinetraMedia, broadcast }
 })
 
 vi.mock("@/lib/db", () => ({ db: mocks.db }))
@@ -29,6 +30,7 @@ vi.mock("@/lib/realtime", () => ({
 }))
 vi.mock("@/lib/services/trinetra-integration.service", () => ({
   analyzeTrinetraContent: mocks.analyzeTrinetraContent,
+  analyzeTrinetraMedia: mocks.analyzeTrinetraMedia,
   getTrinetraProtectionStatus: mocks.getTrinetraProtectionStatus,
   TRINETRA_MAX_CONTENT_LENGTH: 4000,
 }))
@@ -83,6 +85,7 @@ describe("message delivery with Trinetra Protection", () => {
     }))
     mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: false, linked: false, pending: false })
     mocks.analyzeTrinetraContent.mockResolvedValue(safeResult)
+    mocks.analyzeTrinetraMedia.mockResolvedValue({ result: safeResult, transcription: null })
     mocks.broadcast.mockResolvedValue(undefined)
   })
 
@@ -172,6 +175,18 @@ describe("message delivery with Trinetra Protection", () => {
     )
   })
 
+  it("rejects a protected-message open request from anyone except its receiver", async () => {
+    mocks.db.update.mockImplementationOnce(() => ({
+      set: () => ({
+        where: () => ({ returning: async () => [] }),
+      }),
+    }))
+
+    await expect(openProtectedMessage("conversation-1", "message-1", "secure-user-1"))
+      .rejects.toThrow("Protected message not found")
+    expect(mocks.broadcast).not.toHaveBeenCalled()
+  })
+
   it("derives locked state from stored verdict and open timestamp after refresh", async () => {
     const rows = [
       {
@@ -233,13 +248,89 @@ describe("message delivery with Trinetra Protection", () => {
     expect(mocks.broadcast).toHaveBeenCalledOnce()
   })
 
-  it("does not send image or voice payloads to unsupported detection types", async () => {
+  it("analyzes images and voice through Trinetra before delivery", async () => {
     mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
+    mocks.analyzeTrinetraMedia
+      .mockResolvedValueOnce({ result: { ...safeResult, detectionType: "image" }, transcription: null })
+      .mockResolvedValueOnce({
+        result: { ...safeResult, detectionType: "voice", prediction: "SCAM" },
+        transcription: "Send your account details immediately",
+      })
 
-    await sendMessage(input({ messageType: "image", mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.png" }))
-    await sendMessage(input({ messageType: "voice", mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.webm" }))
+    const image = await sendMessage(input({
+      messageType: "image",
+      content: "A caption",
+      mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.png",
+    }))
+    const voice = await sendMessage(input({
+      messageType: "voice",
+      content: "",
+      mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.webm",
+    }))
 
-    expect(mocks.analyzeTrinetraContent).not.toHaveBeenCalled()
+    expect(mocks.analyzeTrinetraMedia.mock.calls).toEqual([
+      ["secure-user-1", "image", "/api/files/0123456789abcdef0123456789abcdef.png", "en"],
+      ["secure-user-1", "voice", "/api/files/0123456789abcdef0123456789abcdef.webm", "en"],
+    ])
+    expect(image.trinetraPrediction).toBe("SAFE")
+    expect(image.trinetraUnavailable).toBe(false)
+    expect(voice.trinetraPrediction).toBe("SCAM")
+    expect(voice.trinetraLocked).toBe(true)
+    expect(voice.trinetraTranscription).toBe("Send your account details immediately")
     expect(mocks.broadcast).toHaveBeenCalledTimes(2)
+  })
+
+  it("supports protected image and safe voice messages in both chat directions", async () => {
+    mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
+    mocks.analyzeTrinetraMedia
+      .mockResolvedValueOnce({
+        result: { ...safeResult, detectionType: "image", prediction: "SCAM" },
+        transcription: null,
+      })
+      .mockResolvedValueOnce({
+        result: { ...safeResult, detectionType: "voice", prediction: "SAFE" },
+        transcription: "Meet me at five.",
+      })
+
+    const spamImage = await sendMessage(input({
+      messageType: "image",
+      content: "Review this photo",
+      mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.png",
+    }))
+    const safeVoice = await sendMessage(input({
+      senderId: "secure-user-2",
+      receiverId: "secure-user-1",
+      messageType: "voice",
+      content: "",
+      mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.webm",
+    }))
+
+    expect(spamImage.trinetraLocked).toBe(true)
+    expect(spamImage.trinetraUnavailable).toBe(false)
+    expect(safeVoice.trinetraPrediction).toBe("SAFE")
+    expect(safeVoice.trinetraLocked).toBe(false)
+    expect(safeVoice.trinetraUnavailable).toBe(false)
+    expect(mocks.broadcast.mock.calls.map((call) => call[1].message.receiverId)).toEqual([
+      "secure-user-2",
+      "secure-user-1",
+    ])
+  })
+
+  it("does not mark a valid media verdict unavailable when caption analysis fails", async () => {
+    mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
+    mocks.analyzeTrinetraMedia.mockResolvedValueOnce({
+      result: { ...safeResult, detectionType: "image" },
+      transcription: null,
+    })
+    mocks.analyzeTrinetraContent.mockRejectedValueOnce(new Error("caption scan unavailable"))
+
+    const sent = await sendMessage(input({
+      messageType: "image",
+      content: "Safe caption",
+      mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.png",
+    }))
+
+    expect(sent.trinetraPrediction).toBe("SAFE")
+    expect(sent.trinetraUnavailable).toBe(false)
   })
 })

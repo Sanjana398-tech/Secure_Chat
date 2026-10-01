@@ -2,7 +2,7 @@
 
 ## Trinetra AI Protection
 
-Protection is disabled for each account until its owner enables it in the chat sidebar and completes Trinetra's consent flow. Secure Chat binds the one-time OAuth state to the authenticated user, exchanges the code on the server, and stores the short-lived account token encrypted with AES-256-GCM. Turning protection off immediately clears the local token and pending state. Only text, URL, and UPI/payment message content is sent; attachment and voice messages continue through Secure Chat without Trinetra analysis.
+Protection is disabled for each account until its owner enables it in the chat sidebar and completes Trinetra's consent flow. Secure Chat binds the one-time OAuth state to the authenticated user, exchanges the code on the server, and stores the short-lived account token encrypted with AES-256-GCM. Turning protection off immediately clears the local token and pending state. Text, URL, UPI/payment, image, and voice messages are analyzed server-side. Images and voice notes are read from private Vercel Blob storage and sent as multipart uploads to Trinetra's screenshot and Whisper endpoints; OCR/transcribed text is also checked through the authenticated detection endpoint.
 
 Configure these server-side variables in local `.env.local` and the Vercel project settings. Do not prefix any of them with `NEXT_PUBLIC_`:
 

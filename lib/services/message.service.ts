@@ -30,6 +30,7 @@ import { message, conversation } from "@/lib/db/schema"
 import { broadcast, conversationChannel, userChannel } from "@/lib/realtime"
 import {
   analyzeTrinetraContent,
+  analyzeTrinetraMedia,
   getTrinetraProtectionStatus,
   TRINETRA_MAX_CONTENT_LENGTH,
 } from "@/lib/services/trinetra-integration.service"
@@ -71,6 +72,16 @@ function serializeMessage(saved: Message): Message {
   }
 }
 
+function moreRiskyResult(
+  first: ProcessedMessage["trinetraResult"],
+  second: ProcessedMessage["trinetraResult"],
+): ProcessedMessage["trinetraResult"] {
+  if (!first) return second
+  if (!second) return first
+  const riskRank = { SAFE: 0, SUSPICIOUS: 1, SCAM: 2 }
+  return riskRank[second.prediction] > riskRank[first.prediction] ? second : first
+}
+
 // ─── Step 1: Process (Trinetra AI Analysis) ──────────────────────────────────
 
 /**
@@ -83,8 +94,9 @@ function serializeMessage(saved: Message): Message {
 async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   let result: ProcessedMessage["trinetraResult"] = null
   let unavailable = false
-  let detectionType: "message" | "url" | "upi" | null = null
+  let detectionType: "message" | "url" | "upi" | "image" | "voice" | null = null
   let detectionContent = ""
+  let transcription: string | null = null
 
   switch (input.messageType) {
     case "url":
@@ -101,7 +113,10 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
       break
     }
     case "image":
+      detectionType = "image"
+      break
     case "voice":
+      detectionType = "voice"
       break
     default:
       detectionType = "message"
@@ -109,12 +124,40 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   }
 
   try {
-    if (detectionType && detectionContent && detectionContent.length <= TRINETRA_MAX_CONTENT_LENGTH) {
+    if (detectionType) {
       const protection = await getTrinetraProtectionStatus(input.senderId, true)
       if (protection.enabled) {
         if (!protection.linked) {
           unavailable = true
-        } else {
+        } else if (detectionType === "image" || detectionType === "voice") {
+          if (!input.mediaUrl) {
+            unavailable = true
+          } else {
+            const mediaAnalysis = await analyzeTrinetraMedia(
+              input.senderId,
+              detectionType,
+              input.mediaUrl,
+              input.language,
+            )
+            result = mediaAnalysis.result
+            transcription = mediaAnalysis.transcription
+
+            if (
+              detectionType === "image" &&
+              input.content.trim() &&
+              input.content.trim().length <= TRINETRA_MAX_CONTENT_LENGTH
+            ) {
+              const captionResult = await analyzeTrinetraContent(
+                input.senderId,
+                "message",
+                input.content.trim(),
+                input.language,
+              )
+              result = moreRiskyResult(result, captionResult)
+            }
+            unavailable = result === null
+          }
+        } else if (detectionContent && detectionContent.length <= TRINETRA_MAX_CONTENT_LENGTH) {
           result = await analyzeTrinetraContent(
             input.senderId,
             detectionType,
@@ -126,7 +169,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
       }
     }
   } catch (err) {
-    unavailable = true
+    unavailable = result === null
     console.warn("[message.service] Trinetra analysis unavailable:", (err as Error).message)
   }
 
@@ -134,6 +177,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
     ...input,
     allowed: true,
     trinetraResult: result,
+    trinetraTranscription: transcription,
     trinetraUnavailable: unavailable,
   }
 }

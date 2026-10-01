@@ -212,5 +212,57 @@ describe("Trinetra result display", () => {
     )
     expect(openedHtml).toContain("Send your password immediately")
     expect(openedHtml).not.toContain("Trinetra Protection Alert")
+
+    const protectedMedia = [
+      {
+        ...message,
+        id: "message-image-locked",
+        messageType: "image" as const,
+        mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.png",
+      },
+      {
+        ...message,
+        id: "message-voice-locked",
+        messageType: "voice" as const,
+        mediaUrl: "/api/files/0123456789abcdef0123456789abcdef.webm",
+      },
+    ]
+
+    for (const protectedMessage of protectedMedia) {
+      const lockedMediaHtml = renderToStaticMarkup(
+        <MessageBubble
+          message={protectedMessage}
+          isOwn={false}
+          isLastInRun
+          language="en"
+          voiceAlertsEnabled={false}
+          onOpenProtectedMessage={async () => true}
+        />,
+      )
+      expect(lockedMediaHtml).not.toContain("<img")
+      expect(lockedMediaHtml).not.toContain("<audio")
+
+      const openedMediaHtml = renderToStaticMarkup(
+        <MessageBubble
+          message={{
+            ...protectedMessage,
+            trinetraOpenedAt: new Date().toISOString(),
+            trinetraLocked: false,
+          }}
+          isOwn={false}
+          isLastInRun
+          language="en"
+          voiceAlertsEnabled={false}
+          onOpenProtectedMessage={async () => true}
+        />,
+      )
+      if (protectedMessage.messageType === "image") {
+        expect(openedMediaHtml).toContain("<img")
+      } else {
+        expect(openedMediaHtml).toContain("<audio")
+        expect(openedMediaHtml).toContain("controls")
+        expect(openedMediaHtml).not.toContain("autoplay")
+      }
+    }
   })
 })
