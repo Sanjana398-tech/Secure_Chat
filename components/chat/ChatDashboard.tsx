@@ -8,6 +8,13 @@ import EmptyState from "@/components/chat/EmptyState"
 import { isClientRealtimeEnabled } from "@/lib/realtime/client"
 import { useUserRealtime } from "@/hooks/useRealtime"
 import { type LanguageCode } from "@/lib/localization"
+import {
+  getDeviceAlertPermission,
+  isProtectedIncomingMessage,
+  notifyProtectedMessage,
+  prepareProtectionAlertSound,
+  requestDeviceAlertPermission,
+} from "@/lib/device-alerts"
 
 const POLL_MS = 2500
 
@@ -116,11 +123,23 @@ export default function ChatDashboard({
   const [currentUserState, setCurrentUserState] = useState<PublicUser>(currentUser)
   const [language, setLanguage] = useState<LanguageCode>("en")
   const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(true)
+  const [deviceAlertsEnabled, setDeviceAlertsEnabled] = useState(false)
+  const [deviceAlertError, setDeviceAlertError] = useState<string | null>(null)
   const [trinetraProtection, setTrinetraProtection] = useState<TrinetraProtectionState>(initialTrinetraProtection)
   const [trinetraError, setTrinetraError] = useState<string | null>(null)
   const [updatingTrinetraProtection, setUpdatingTrinetraProtection] = useState(false)
   const activeIdRef = useRef<string | null>(null)
+  const conversationsRef = useRef(initialConversations)
+  const notifiedMessageIdsRef = useRef(new Set(
+    initialConversations.flatMap((conversation) =>
+      conversation.lastMessage?.trinetraLocked ? [conversation.lastMessage.id] : [],
+    ),
+  ))
   activeIdRef.current = activeConversationId
+
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
 
   useEffect(() => {
     const saved = window.localStorage.getItem("trinetra-language")
@@ -129,6 +148,14 @@ export default function ChatDashboard({
     }
     const savedVoiceAlerts = window.localStorage.getItem("trinetra-voice-alerts")
     if (savedVoiceAlerts !== null) setVoiceAlertsEnabled(savedVoiceAlerts === "true")
+    const savedDeviceAlerts = window.localStorage.getItem("trinetra-device-alerts") === "true"
+    const permission = getDeviceAlertPermission()
+    setDeviceAlertsEnabled(savedDeviceAlerts && permission === "granted")
+    if (savedDeviceAlerts && permission !== "granted") {
+      setDeviceAlertError(permission === "denied"
+        ? "Allow notifications for Secure Chat in your browser settings."
+        : "Enable device alerts again to grant browser permission.")
+    }
   }, [])
 
   function handleLanguageChange(nextLanguage: LanguageCode) {
@@ -139,6 +166,31 @@ export default function ChatDashboard({
   function handleVoiceAlertsChange(enabled: boolean) {
     setVoiceAlertsEnabled(enabled)
     window.localStorage.setItem("trinetra-voice-alerts", String(enabled))
+  }
+
+  async function handleDeviceAlertsChange(enabled: boolean) {
+    setDeviceAlertError(null)
+    if (!enabled) {
+      setDeviceAlertsEnabled(false)
+      window.localStorage.setItem("trinetra-device-alerts", "false")
+      return
+    }
+
+    const soundSetup = prepareProtectionAlertSound()
+    const permission = await requestDeviceAlertPermission()
+    if (permission !== "granted") {
+      setDeviceAlertsEnabled(false)
+      window.localStorage.setItem("trinetra-device-alerts", "false")
+      setDeviceAlertError(permission === "unsupported"
+        ? "This browser does not support device notifications."
+        : "Allow notifications for Secure Chat to enable spam alerts.")
+      return
+    }
+
+    const soundReady = await soundSetup
+    setDeviceAlertsEnabled(true)
+    window.localStorage.setItem("trinetra-device-alerts", "true")
+    if (!soundReady) setDeviceAlertError("Device alerts are on, but this browser blocked alert sound.")
   }
 
   async function handleTrinetraProtectionChange(enabled: boolean) {
@@ -195,40 +247,70 @@ export default function ChatDashboard({
     [],
   )
 
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id)
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)),
+    )
+    setShowChat(true)
+    setToasts((prev) => prev.filter((t) => t.conversationId !== id))
+  }, [])
+
+  const alertForIncomingMessage = useCallback((conversationId: string, message: Message) => {
+    if (!isProtectedIncomingMessage(message, currentUser.id) || notifiedMessageIdsRef.current.has(message.id)) return
+
+    notifiedMessageIdsRef.current.add(message.id)
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId)
+    addToast(
+      conversationId,
+      conversation?.otherUser.username ?? conversation?.otherUser.name ?? "Protected message",
+      "Trinetra flagged a message. Open this chat to review it.",
+    )
+
+    if (deviceAlertsEnabled) {
+      notifyProtectedMessage(conversationId, message.id, () => handleSelectConversation(conversationId))
+    }
+  }, [addToast, currentUser.id, deviceAlertsEnabled, handleSelectConversation])
+
   const refreshConversations = useCallback(async () => {
     try {
       const res = await fetch("/api/conversations")
       const json = await res.json()
       if (res.ok && json.data) {
-        setConversations(json.data)
+        const previousById = new Map(conversationsRef.current.map((item) => [item.id, item]))
+        const refreshedConversations = json.data as Conversation[]
+        const newMessages = refreshedConversations.flatMap((item) => {
+          const latest = item.lastMessage
+          const previous = previousById.get(item.id)?.lastMessage
+          return latest && latest.id !== previous?.id ? [{ conversationId: item.id, message: latest }] : []
+        })
+        conversationsRef.current = refreshedConversations
+        setConversations(refreshedConversations)
+        for (const incoming of newMessages) {
+          alertForIncomingMessage(incoming.conversationId, incoming.message)
+        }
       }
     } catch {
       /* keep current list on network errors */
     }
-  }, [])
+  }, [alertForIncomingMessage])
 
   // Subscribe to user channel for new-message and presence events
   useUserRealtime(currentUser.id, {
     onNewMessage: (event) => {
       const { conversationId, message } = event
+      if (message.receiverId === currentUser.id && message.senderId !== currentUser.id) {
+        alertForIncomingMessage(conversationId, message)
+      }
       setConversations((prev) => {
         const exists = prev.some((c) => c.id === conversationId)
         if (!exists) {
           void refreshConversations()
-          // Show toast for new conversation messages
-          if (message.senderId !== currentUser.id) {
-            addToast(conversationId, message.sender?.username ?? "New message", message.content)
-          }
           return prev
         }
-        // Show toast for incoming messages not in the active conversation
-        if (message.senderId !== currentUser.id) {
+        if (message.senderId !== currentUser.id && !message.trinetraLocked) {
           const convo = prev.find((c) => c.id === conversationId)
-          addToast(
-            conversationId,
-            convo?.otherUser.username ?? convo?.otherUser.name ?? "New message",
-            message.content,
-          )
+          addToast(conversationId, convo?.otherUser.username ?? convo?.otherUser.name ?? "New message", message.content)
         }
         return applyLastMessage(
           prev,
@@ -338,16 +420,6 @@ export default function ChatDashboard({
     }
   }, [])
 
-  const handleSelectConversation = useCallback((id: string) => {
-    setActiveConversationId(id)
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)),
-    )
-    setShowChat(true)
-    // Dismiss any toasts for this conversation
-    setToasts((prev) => prev.filter((t) => t.conversationId !== id))
-  }, [])
-
   const handleNewConversation = useCallback((conversation: Conversation) => {
     setConversations((prev) => {
       const exists = prev.find((c) => c.id === conversation.id)
@@ -396,6 +468,9 @@ export default function ChatDashboard({
           onLanguageChange={handleLanguageChange}
           voiceAlertsEnabled={voiceAlertsEnabled}
           onVoiceAlertsChange={handleVoiceAlertsChange}
+          deviceAlertsEnabled={deviceAlertsEnabled}
+          deviceAlertError={deviceAlertError}
+          onDeviceAlertsChange={handleDeviceAlertsChange}
           trinetraProtection={trinetraProtection}
           trinetraError={trinetraError}
           trinetraBusy={updatingTrinetraProtection}

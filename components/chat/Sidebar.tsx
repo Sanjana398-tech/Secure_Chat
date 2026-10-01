@@ -22,6 +22,9 @@ interface Props {
   onLanguageChange: (language: LanguageCode) => void
   voiceAlertsEnabled: boolean
   onVoiceAlertsChange: (enabled: boolean) => void
+  deviceAlertsEnabled: boolean
+  deviceAlertError: string | null
+  onDeviceAlertsChange: (enabled: boolean) => void
   trinetraProtection: { enabled: boolean; linked: boolean; pending: boolean }
   trinetraError: string | null
   trinetraBusy: boolean
@@ -39,6 +42,9 @@ export default function Sidebar({
   onLanguageChange,
   voiceAlertsEnabled,
   onVoiceAlertsChange,
+  deviceAlertsEnabled,
+  deviceAlertError,
+  onDeviceAlertsChange,
   trinetraProtection,
   trinetraError,
   trinetraBusy,
@@ -145,6 +151,23 @@ export default function Sidebar({
               aria-label="Automatic voice alerts"
             />
           </label>
+          <div className="mb-3">
+            <label className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
+              <span>Spam device alerts + sound</span>
+              <input
+                type="checkbox"
+                checked={deviceAlertsEnabled}
+                onChange={(event) => onDeviceAlertsChange(event.target.checked)}
+                className="size-3.5 accent-[--sidebar-primary]"
+                aria-label="Spam device alerts and sound"
+              />
+            </label>
+            <p className="mt-1 text-[10px] text-muted-foreground" role={deviceAlertError ? "status" : undefined}>
+              {deviceAlertError ?? (deviceAlertsEnabled
+                ? "Browser notifications and alert sound are enabled"
+                : "Enable to receive flagged-message notifications")}
+            </p>
+          </div>
           <div className="mb-3">
             <label className="flex items-center justify-between gap-3 text-[10px] text-sidebar-foreground">
               <span>Trinetra AI Protection</span>

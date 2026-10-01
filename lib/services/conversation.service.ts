@@ -145,6 +145,10 @@ export async function getUserConversations(userId: string): Promise<Conversation
       lastMessage: lastMessages[0]
         ? ({
             ...lastMessages[0],
+            trinetraOpenedAt: lastMessages[0].trinetraOpenedAt?.toISOString() ?? null,
+            trinetraLocked:
+              ["SCAM", "SUSPICIOUS"].includes(lastMessages[0].trinetraPrediction?.toUpperCase() ?? "") &&
+              !lastMessages[0].trinetraOpenedAt,
             trinetraDetectedUrls: JSON.parse(lastMessages[0].trinetraDetectedUrls ?? "[]"),
             trinetraReasons: JSON.parse(lastMessages[0].trinetraReasons ?? "[]"),
             trinetraTips: JSON.parse(lastMessages[0].trinetraTips ?? "[]"),

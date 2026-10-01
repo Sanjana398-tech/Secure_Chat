@@ -19,7 +19,9 @@ export default function ConversationItem({
 }: Props) {
   const { otherUser, lastMessage, unreadCount } = conversation
 
-  const preview = lastMessage
+  const preview = lastMessage?.receiverId === currentUserId && lastMessage.trinetraLocked
+    ? "Trinetra flagged a message. Open chat to review it."
+    : lastMessage
     ? lastMessage.senderId === currentUserId
       ? `You: ${lastMessage.content}`
       : lastMessage.content
