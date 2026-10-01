@@ -51,6 +51,14 @@ function parseJsonArray(value: unknown): string[] {
   }
 }
 
+  function trinetraTypeLabel(messageType: MessageInput["messageType"]): string {
+    if (messageType === "url") return "URL"
+    if (messageType === "payment") return "UPI"
+    if (messageType === "image") return "IMAGE"
+    if (messageType === "voice") return "VOICE"
+    return "TEXT"
+  }
+
 function serializeMessage(saved: Message): Message {
   return {
     ...saved,
@@ -96,6 +104,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   let detectionType: "message" | "url" | "upi" | "image" | "voice" | null = null
   let detectionContent = ""
   let transcription: string | null = null
+  let protectionEnabled = false
 
   switch (input.messageType) {
     case "url":
@@ -125,6 +134,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   try {
     if (detectionType) {
       const protection = await getTrinetraProtectionStatus(input.senderId, true)
+        protectionEnabled = protection.enabled
       if (protection.enabled) {
         if (!protection.linked) {
           unavailable = true
@@ -168,6 +178,12 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
       }
     }
   } catch (err) {
+
+      if (protectionEnabled || result || unavailable) {
+        console.info(
+          `[message.service] TRINETRA_ANALYSIS type=${detectionType ? detectionType === "message" ? "TEXT" : detectionType.toUpperCase() : trinetraTypeLabel(input.messageType)} classification=${result?.prediction ?? "NONE"} scan_id_present=${Boolean(result?.scanId)} protected=${Boolean(result && isTrinetraProtectedPrediction(result.prediction))} unavailable=${unavailable}`,
+        )
+      }
     unavailable = result === null
     console.warn("[message.service] Trinetra analysis unavailable:", (err as Error).message)
   }
@@ -232,6 +248,10 @@ async function saveMessage(processed: ProcessedMessage): Promise<Message> {
     })
     .returning()
 
+  console.info(
+    `[message.service] TRINETRA_PERSISTED type=${trinetraTypeLabel(processed.messageType)} classification=${saved.trinetraPrediction ?? "NONE"} scan_id_present=${Boolean(saved.trinetraScanId)} protected=${isTrinetraProtectedPrediction(saved.trinetraPrediction) && !saved.trinetraOpenedAt}`,
+  )
+
   // Update the conversation's updatedAt so sidebar sorts correctly
   await db
     .update(conversation)
@@ -257,6 +277,9 @@ async function deliverMessage(saved: Message): Promise<void> {
       userChannel(saved.senderId),
     ],
     payload,
+  )
+  console.info(
+    `[message.service] TRINETRA_DELIVERED type=${trinetraTypeLabel(saved.messageType)} classification=${saved.trinetraPrediction ?? "NONE"} scan_id_present=${Boolean(saved.trinetraScanId)} protected=${isTrinetraProtectedPrediction(saved.trinetraPrediction) && !saved.trinetraOpenedAt}`,
   )
 }
 

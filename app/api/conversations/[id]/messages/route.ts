@@ -24,6 +24,15 @@ export async function GET(
     }
 
     const messages = await getMessages(conversationId)
+    if (markRead) {
+      const inbound = messages.filter((message) => message.receiverId === currentUserId)
+      const protectedCount = inbound.filter((message) => message.trinetraLocked).length
+      const scamCount = inbound.filter((message) => message.trinetraPrediction === "SCAM").length
+      const suspiciousCount = inbound.filter((message) => message.trinetraPrediction === "SUSPICIOUS").length
+      console.info(
+        `[GET messages] TRINETRA_RECEIVER_HISTORY inbound=${inbound.length} protected=${protectedCount} scam=${scamCount} suspicious=${suspiciousCount}`,
+      )
+    }
 
     // Mark incoming messages as read when the user opens the chat.
     // Polling fallback uses ?markRead=false so we do not rewrite rows every few seconds.

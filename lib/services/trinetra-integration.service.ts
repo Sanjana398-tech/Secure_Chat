@@ -327,8 +327,9 @@ async function requestJson(
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> | null }> {
   const startedAt = Date.now()
   const endpoint = new URL(url)
+  const typeTag = detectionType ? ` detection_type=${detectionType}` : ""
   reportDiagnostic(
-    `${requestKind}_REQUEST_STARTED endpoint=${endpoint.origin}${endpoint.pathname} timeout_ms=${requestTimeoutMs}${detectionType ? ` detection_type=${detectionType}` : ""}`,
+    `${requestKind}_REQUEST_STARTED endpoint=${endpoint.origin}${endpoint.pathname} timeout_ms=${requestTimeoutMs}${typeTag}`,
   )
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
@@ -338,19 +339,19 @@ async function requestJson(
     const elapsedMs = Date.now() - startedAt
     if (!response.ok) {
       reportDiagnostic(`TRINETRA_HTTP_ERROR status=${response.status}`)
-      reportDiagnostic(`${requestKind}_REQUEST_HTTP_ERROR status=${response.status} elapsed_ms=${elapsedMs}`)
+      reportDiagnostic(`${requestKind}_REQUEST_HTTP_ERROR${typeTag} status=${response.status} elapsed_ms=${elapsedMs}`)
     } else {
-      reportDiagnostic(`${requestKind}_REQUEST_SUCCESS status=${response.status} elapsed_ms=${elapsedMs}`)
+      reportDiagnostic(`${requestKind}_REQUEST_SUCCESS${typeTag} status=${response.status} elapsed_ms=${elapsedMs}`)
     }
     if (text.length > 64 * 1024) {
-      reportDiagnostic(`${requestKind}_REQUEST_RESPONSE_TOO_LARGE status=${response.status} elapsed_ms=${elapsedMs}`)
+      reportDiagnostic(`${requestKind}_REQUEST_RESPONSE_TOO_LARGE${typeTag} status=${response.status} elapsed_ms=${elapsedMs}`)
       return { ok: response.ok, status: response.status, body: null }
     }
     let body: unknown
     try {
       body = JSON.parse(text)
     } catch {
-      reportDiagnostic(`${requestKind}_REQUEST_INVALID_JSON status=${response.status} elapsed_ms=${elapsedMs}`)
+      reportDiagnostic(`${requestKind}_REQUEST_INVALID_JSON${typeTag} status=${response.status} elapsed_ms=${elapsedMs}`)
       return { ok: response.ok, status: response.status, body: null }
     }
     return {
@@ -363,11 +364,11 @@ async function requestJson(
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       const elapsedMs = Date.now() - startedAt
-      reportDiagnostic(`${requestKind}_REQUEST_TIMEOUT elapsed_ms=${elapsedMs} timeout_ms=${requestTimeoutMs}`)
+      reportDiagnostic(`${requestKind}_REQUEST_TIMEOUT${typeTag} elapsed_ms=${elapsedMs} timeout_ms=${requestTimeoutMs}`)
       reportDiagnostic(`TRINETRA_TIMEOUT after=${requestTimeoutMs}ms`)
       throw new Error("TRINETRA_TIMEOUT")
     }
-    reportDiagnostic(`${requestKind}_REQUEST_NETWORK_ERROR elapsed_ms=${Date.now() - startedAt}`)
+    reportDiagnostic(`${requestKind}_REQUEST_NETWORK_ERROR${typeTag} elapsed_ms=${Date.now() - startedAt}`)
     reportDiagnostic("TRINETRA_NETWORK_ERROR")
     throw new Error("TRINETRA_NETWORK_ERROR")
   } finally {
@@ -613,6 +614,16 @@ export function normalizeTrinetraDetection(
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
   const speechText = [result.speech_text, result.speechText]
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null
+  const rawScanId = [result.scan_id, result.scanId]
+    .find((value) =>
+      (typeof value === "string" && value.trim().length > 0) ||
+      (typeof value === "number" && Number.isSafeInteger(value) && value >= 0),
+    )
+  const scanId = typeof rawScanId === "number"
+    ? String(rawScanId)
+    : typeof rawScanId === "string"
+      ? rawScanId.trim() || null
+      : null
 
   return {
     detectionType: responseType === "message" || responseType === "url" || responseType === "upi" ||
@@ -633,8 +644,7 @@ export function normalizeTrinetraDetection(
     qrContent,
     language: typeof language === "string" ? language : null,
     speechText,
-    scanId: [result.scan_id, result.scanId]
-      .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null,
+    scanId,
   }
 }
 
@@ -691,26 +701,26 @@ async function readUploadedMedia(
   const match = /^\/api\/files\/([^/]+)$/.exec(mediaUrl)
   const filename = match?.[1]
   if (!filename || !MEDIA_FILENAME_RE.test(filename)) {
-    reportDiagnostic("TRINETRA_MEDIA_INVALID_URL")
+    reportDiagnostic(`TRINETRA_MEDIA_INVALID_URL type=${type.toUpperCase()}`)
     return null
   }
 
   const extension = filename.split(".").pop()?.toLowerCase() ?? ""
   const allowedExtensions = type === "image" ? IMAGE_EXTENSIONS : AUDIO_EXTENSIONS
   if (!allowedExtensions.has(extension)) {
-    reportDiagnostic("TRINETRA_MEDIA_TYPE_MISMATCH")
+    reportDiagnostic(`TRINETRA_MEDIA_TYPE_MISMATCH type=${type.toUpperCase()}`)
     return null
   }
 
   try {
     const blob = await getBlob(filename, { access: "private" })
     if (!blob) {
-      reportDiagnostic("TRINETRA_MEDIA_NOT_FOUND")
+      reportDiagnostic(`TRINETRA_MEDIA_NOT_FOUND type=${type.toUpperCase()}`)
       return null
     }
     const buffer = Buffer.from(await new Response(blob.stream).arrayBuffer())
     if (buffer.length === 0) {
-      reportDiagnostic("TRINETRA_MEDIA_EMPTY")
+      reportDiagnostic(`TRINETRA_MEDIA_EMPTY type=${type.toUpperCase()}`)
       return null
     }
     return {
@@ -719,7 +729,7 @@ async function readUploadedMedia(
       contentType: blob.blob.contentType || MEDIA_MIME_BY_EXT[extension] || "application/octet-stream",
     }
   } catch {
-    reportDiagnostic("TRINETRA_MEDIA_READ_FAILED")
+    reportDiagnostic(`TRINETRA_MEDIA_READ_FAILED type=${type.toUpperCase()}`)
     return null
   }
 }
@@ -778,7 +788,7 @@ export async function analyzeTrinetraContent(
       },
       body: JSON.stringify({
         type: { message: "TEXT", url: "URL", upi: "UPI", qr: "QR" }[type],
-        text: content,
+        ...(type === "url" ? { url: content } : { text: content }),
         ...(language ? { language } : {}),
       }),
     },
@@ -791,6 +801,9 @@ export async function analyzeTrinetraContent(
     return null
   }
   const result = normalizeTrinetraDetection(response.body as DetectionResponse, type)
+  reportDiagnostic(
+    `DETECT_RESPONSE type=${type === "message" ? "TEXT" : type.toUpperCase()} status=${response.status} classification=${result?.prediction ?? "UNPARSED"} scan_id_present=${Boolean(result?.scanId)} error_present=${Object.hasOwn(response.body, "error")}`,
+  )
   if (!result) {
     reportDiagnostic("TRINETRA_INVALID_RESPONSE")
     reportDiagnostic(
@@ -841,6 +854,9 @@ export async function analyzeTrinetraMedia(
 
   const transcription = findStringField(response.body, ["transcription"])
   let result = normalizeTrinetraDetection(response.body as DetectionResponse, type)
+  reportDiagnostic(
+    `DETECT_RESPONSE type=${type.toUpperCase()} status=${response.status} classification=${result?.prediction ?? "UNPARSED"} scan_id_present=${Boolean(result?.scanId)} error_present=${Object.hasOwn(response.body, "error")}`,
+  )
 
   const responseOcrText = type === "image"
     ? findStringField(response.body, ["ocr_text", "extracted_text", "text"])

@@ -315,7 +315,7 @@ describe("Trinetra integration client", () => {
     await expect(analyzeTrinetraContent("account-a", "message", "hello"))
       .rejects.toThrow("TRINETRA_TIMEOUT")
     expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TIMEOUT after=1000ms")
-    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_TIMEOUT elapsed_ms=\d+ timeout_ms=1000$/.test(line))).toBe(true)
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_TIMEOUT detection_type=TEXT elapsed_ms=\d+ timeout_ms=1000$/.test(line))).toBe(true)
   })
 
   it("diagnoses malformed provider JSON", async () => {
@@ -341,7 +341,7 @@ describe("Trinetra integration client", () => {
     expect(requestBody).toMatchObject({ type: "TEXT", text: "hello" })
     expect(requestBody).not.toHaveProperty("content")
     expect(diagnosticMessages.some((line) => line.includes("DETECT_REQUEST_STARTED endpoint=https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect") && line.includes("detection_type=TEXT"))).toBe(true)
-    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_SUCCESS status=200 elapsed_ms=\d+$/.test(line))).toBe(true)
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_SUCCESS detection_type=TEXT status=200 elapsed_ms=\d+$/.test(line))).toBe(true)
   })
 
   it.each([
@@ -363,10 +363,14 @@ describe("Trinetra integration client", () => {
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
       "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
-    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body as string)).toMatchObject({
-      type: apiType,
-      text: "sample content",
-    })
+    const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
+    expect(requestBody.type).toBe(apiType)
+    if (type === "url") {
+      expect(requestBody).toMatchObject({ url: "sample content" })
+      expect(requestBody).not.toHaveProperty("text")
+    } else {
+      expect(requestBody).toMatchObject({ text: "sample content" })
+    }
   })
 
   it("uploads the actual private image bytes to Trinetra and scans returned OCR text", async () => {
@@ -618,6 +622,8 @@ describe("Trinetra integration client", () => {
         risk: 91.2,
         scamProbability: 91.2,
       })
+    expect(diagnosticMessages.some((line) => line.includes("DETECT_REQUEST_STARTED endpoint=https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect") && line.includes("detection_type=TEXT"))).toBe(true)
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_HTTP_ERROR detection_type=TEXT status=500 elapsed_ms=\d+$/.test(line))).toBe(true)
     expect(diagnosticMessages).toContain("[trinetra] TRINETRA_HTTP_ERROR status=500")
   })
 
@@ -702,6 +708,14 @@ describe("Trinetra integration client", () => {
       scanId: "scan-spam-1",
       language: "ta-IN",
     })
+  })
+
+  it("normalizes numeric Trinetra scan IDs for message persistence", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      prediction: "SCAM",
+      scan_id: 12345,
+    }, "message")).toMatchObject({ scanId: "12345" })
   })
 
   it.each(["NOT_SPAM", "NOT SPAM", "HAM"])("maps the provider's %s verdict to SAFE", (verdict) => {
