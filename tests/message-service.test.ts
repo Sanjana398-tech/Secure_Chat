@@ -272,9 +272,12 @@ describe("message delivery with Trinetra Protection", () => {
   it("analyzes images and voice through Trinetra before delivery", async () => {
     mocks.getTrinetraProtectionStatus.mockResolvedValue({ enabled: true, linked: true, pending: false })
     mocks.analyzeTrinetraMedia
-      .mockResolvedValueOnce({ result: { ...safeResult, detectionType: "image" }, transcription: null })
       .mockResolvedValueOnce({
-        result: { ...safeResult, detectionType: "voice", prediction: "SCAM" },
+        result: { ...safeResult, detectionType: "image", scanId: "scan-image-1" },
+        transcription: null,
+      })
+      .mockResolvedValueOnce({
+        result: { ...safeResult, detectionType: "voice", prediction: "SCAM", scanId: "scan-voice-1" },
         transcription: "Send your account details immediately",
       })
 
@@ -294,8 +297,10 @@ describe("message delivery with Trinetra Protection", () => {
       ["secure-user-1", "voice", "/api/files/0123456789abcdef0123456789abcdef.webm", "en"],
     ])
     expect(image.trinetraPrediction).toBe("SAFE")
+    expect(image.trinetraScanId).toBe("scan-image-1")
     expect(image.trinetraUnavailable).toBe(false)
     expect(voice.trinetraPrediction).toBe("SCAM")
+    expect(voice.trinetraScanId).toBe("scan-voice-1")
     expect(voice.trinetraLocked).toBe(true)
     expect(voice.trinetraTranscription).toBe("Send your account details immediately")
     expect(mocks.broadcast).toHaveBeenCalledTimes(2)
