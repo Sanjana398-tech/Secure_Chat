@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const db = {
     insert: vi.fn(),
     update: vi.fn(),
+    select: vi.fn(),
   }
   const getTrinetraProtectionStatus = vi.fn()
   const analyzeTrinetraContent = vi.fn()
@@ -13,7 +14,12 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({ db: mocks.db }))
 vi.mock("@/lib/db/schema", () => ({
-  message: { id: "message.id" },
+  message: {
+    id: "message.id",
+    receiverId: "message.receiverId",
+    conversationId: "message.conversationId",
+    trinetraPrediction: "message.trinetraPrediction",
+  },
   conversation: { id: "conversation.id" },
 }))
 vi.mock("@/lib/realtime", () => ({
@@ -30,9 +36,10 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => conditions,
   desc: (column: unknown) => column,
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  inArray: (column: unknown, values: unknown[]) => ({ column, values }),
 }))
 
-import { sendMessage } from "@/lib/services/message.service"
+import { getMessages, openProtectedMessage, sendMessage } from "@/lib/services/message.service"
 import type { TrinetraAnalysisResult } from "@/types"
 
 const safeResult: TrinetraAnalysisResult = {
@@ -126,6 +133,82 @@ describe("message delivery with Trinetra Protection", () => {
     expect(sent.analyzedAt).not.toBeNull()
     expect(broadcastMessage.trinetraPrediction).toBe("SCAM")
     expect(broadcastMessage.isFlagged).toBe(true)
+    expect(sent.trinetraLocked).toBe(true)
+    expect(broadcastMessage.trinetraLocked).toBe(true)
+  })
+
+  it("persists and broadcasts the receiver's explicit open decision", async () => {
+    mocks.db.update.mockImplementationOnce(() => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => ({
+          returning: async () => [{
+            id: "message-1",
+            conversationId: "conversation-1",
+            senderId: "secure-user-1",
+            receiverId: "secure-user-2",
+            content: "Suspicious content",
+            messageType: "text",
+            createdAt: new Date(),
+            trinetraPrediction: "SCAM",
+            trinetraOpenedAt: values.trinetraOpenedAt,
+            trinetraDetectedUrls: "[]",
+            trinetraReasons: "[]",
+            trinetraTips: "[]",
+          }],
+        }),
+      }),
+    }))
+
+    const opened = await openProtectedMessage("conversation-1", "message-1", "secure-user-2")
+
+    expect(opened.trinetraLocked).toBe(false)
+    expect(opened.trinetraOpenedAt).toBeTypeOf("string")
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      ["conversation-conversation-1", "user-secure-user-2", "user-secure-user-1"],
+      expect.objectContaining({
+        type: "message-protection-updated",
+        message: expect.objectContaining({ trinetraLocked: false }),
+      }),
+    )
+  })
+
+  it("derives locked state from stored verdict and open timestamp after refresh", async () => {
+    const rows = [
+      {
+        id: "message-opened",
+        conversationId: "conversation-1",
+        senderId: "secure-user-1",
+        receiverId: "secure-user-2",
+        content: "Previously opened",
+        trinetraPrediction: "SUSPICIOUS",
+        trinetraOpenedAt: new Date("2026-01-01T00:01:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:30.000Z"),
+      },
+      {
+        id: "message-locked",
+        conversationId: "conversation-1",
+        senderId: "secure-user-1",
+        receiverId: "secure-user-2",
+        content: "Still hidden",
+        trinetraPrediction: "SCAM",
+        trinetraOpenedAt: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ]
+    mocks.db.select.mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({ limit: async () => rows }),
+        }),
+      }),
+    }))
+
+    const messages = await getMessages("conversation-1")
+
+    expect(messages.map(({ id, trinetraLocked }) => ({ id, trinetraLocked }))).toEqual([
+      { id: "message-locked", trinetraLocked: true },
+      { id: "message-opened", trinetraLocked: false },
+    ])
   })
 
   it("requests link diagnostics when protection is on but the account is not linked", async () => {

@@ -4,6 +4,8 @@ import { sendMessage } from "@/lib/services/message.service"
 import { isParticipant } from "@/lib/services/conversation.service"
 import { sendMessageSchema } from "@/lib/validations/message"
 
+export const maxDuration = 90
+
 /**
  * POST /api/messages
  * Send a message (text, image, voice note, or payment request) through

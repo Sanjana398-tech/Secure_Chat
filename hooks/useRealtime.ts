@@ -5,6 +5,7 @@ import { getPusherClient } from "@/lib/realtime/client"
 import { conversationChannel, userChannel } from "@/lib/realtime/channels"
 import type {
   NewMessageEvent,
+  MessageProtectionUpdatedEvent,
   MessageReadEvent,
   TypingEvent,
   PresenceEvent,
@@ -64,6 +65,7 @@ export function useUserRealtime(
 
 interface ConversationRealtimeHandlers {
   onNewMessage: (event: NewMessageEvent) => void
+  onProtectionUpdated?: (event: MessageProtectionUpdatedEvent) => void
   onMessageRead?: (event: MessageReadEvent) => void
   onTyping?: (event: TypingEvent) => void
 }
@@ -97,6 +99,11 @@ export function useConversationRealtime(
         handlerRef.current.onMessageRead?.(event)
       }
     }
+    const protectionHandler = (event: MessageProtectionUpdatedEvent) => {
+      if (event?.type === "message-protection-updated") {
+        handlerRef.current.onProtectionUpdated?.(event)
+      }
+    }
     const typingHandler = (event: TypingEvent) => {
       if (event?.type === "typing" || event?.type === "stop-typing") {
         handlerRef.current.onTyping?.(event)
@@ -105,12 +112,14 @@ export function useConversationRealtime(
 
     channel.bind("new-message", messageHandler)
     channel.bind("message-read", readHandler)
+    channel.bind("message-protection-updated", protectionHandler)
     channel.bind("typing", typingHandler)
     channel.bind("stop-typing", typingHandler)
 
     return () => {
       channel.unbind("new-message", messageHandler)
       channel.unbind("message-read", readHandler)
+      channel.unbind("message-protection-updated", protectionHandler)
       channel.unbind("typing", typingHandler)
       channel.unbind("stop-typing", typingHandler)
       pusher.unsubscribe(name)

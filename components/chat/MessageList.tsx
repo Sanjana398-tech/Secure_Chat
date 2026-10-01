@@ -14,6 +14,7 @@ interface Props {
   bottomRef: React.RefObject<HTMLDivElement | null>
   language: LanguageCode
   voiceAlertsEnabled: boolean
+  onOpenProtectedMessage: (messageId: string) => Promise<boolean>
 }
 
 export default function MessageList({
@@ -24,6 +25,7 @@ export default function MessageList({
   bottomRef,
   language,
   voiceAlertsEnabled,
+  onOpenProtectedMessage,
 }: Props) {
   if (loading) {
     return (
@@ -92,6 +94,7 @@ export default function MessageList({
                   isLastInRun={isLastInRun}
                   language={language}
                   voiceAlertsEnabled={voiceAlertsEnabled}
+                  onOpenProtectedMessage={onOpenProtectedMessage}
                 />
               )
             })}

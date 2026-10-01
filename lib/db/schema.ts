@@ -145,4 +145,5 @@ export const message = pgTable("message", {
   trinetraExplanation: text("trinetraExplanation"),
   trinetraTips: text("trinetraTips"),
   trinetraUnavailable: boolean("trinetraUnavailable").notNull().default(false),
+  trinetraOpenedAt: timestamp("trinetraOpenedAt"),
 })

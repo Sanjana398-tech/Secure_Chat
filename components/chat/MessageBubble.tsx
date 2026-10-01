@@ -23,6 +23,7 @@ interface Props {
   isLastInRun: boolean
   language: LanguageCode
   voiceAlertsEnabled: boolean
+  onOpenProtectedMessage: (messageId: string) => Promise<boolean>
 }
 
 // ─── URL detection ──────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ export default function MessageBubble({
   isLastInRun,
   language,
   voiceAlertsEnabled,
+  onOpenProtectedMessage,
 }: Props) {
   const isTemp = message.id.startsWith("temp-")
   const time = formatMessageTime(message.createdAt)
@@ -92,6 +94,9 @@ export default function MessageBubble({
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [showWhy, setShowWhy] = useState(false)
+  const [isOpening, setIsOpening] = useState(false)
+  const [keptClosed, setKeptClosed] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
   const lastSpokenDetection = useRef<string | null>(null)
   const confidence = message.trinetraConfidence
   const isAnalyzed = !isTemp && (prediction != null || message.analyzedAt != null || message.isFlagged === true)
@@ -133,6 +138,14 @@ export default function MessageBubble({
     const explanation = flaggedDetails.join(" ")
     if (!explanation) return
     speakText(explanation, language)
+  }
+
+  async function openProtectedMessage() {
+    setIsOpening(true)
+    setOpenError(null)
+    const opened = await onOpenProtectedMessage(message.id)
+    setIsOpening(false)
+    if (!opened) setOpenError("Couldn't open this message. Try again.")
   }
 
   // Clear any stale TTS error when the user changes language
@@ -246,6 +259,50 @@ export default function MessageBubble({
             ⚠️ {ttsError}
           </p>
         )}
+      </div>
+    )
+  }
+
+  if (!isOwn && message.trinetraLocked) {
+    return (
+      <div className="flex items-end gap-1.5 flex-row">
+        <div className="size-6 flex-shrink-0" />
+        <div className="flex flex-col items-start gap-0.5 max-w-[72%] sm:max-w-[60%]">
+          <div className="w-full rounded-lg border border-red-500/40 bg-red-950/80 px-3 py-3 text-red-100">
+            <div className="mb-2 flex items-center gap-1.5">
+              <ShieldAlert className="size-4 flex-shrink-0 text-red-400" />
+              <span className="text-xs font-bold text-red-300">Trinetra Protection Alert</span>
+            </div>
+            <p className="text-xs leading-relaxed">
+              This message was detected as potentially harmful or spam. Its content is hidden.
+            </p>
+            <p className="mt-2 text-xs">Do you want to open this message?</p>
+            {keptClosed ? (
+              <p className="mt-3 text-xs text-red-200">This message remains locked.</p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={openProtectedMessage}
+                  disabled={isOpening}
+                  className="rounded-md bg-red-300 px-3 py-1.5 text-xs font-semibold text-red-950 hover:bg-red-200 disabled:opacity-60"
+                >
+                  {isOpening ? "Opening…" : "Open Message"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKeptClosed(true)}
+                  disabled={isOpening}
+                  className="rounded-md border border-red-300/40 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900 disabled:opacity-60"
+                >
+                  Don&apos;t Open
+                </button>
+              </div>
+            )}
+            {openError && <p className="mt-2 text-xs text-red-200" role="alert">{openError}</p>}
+          </div>
+          <MetaRow />
+        </div>
       </div>
     )
   }

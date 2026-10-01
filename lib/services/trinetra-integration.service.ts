@@ -435,7 +435,8 @@ function findDetectionResult(
   if (depth >= 5) return null
 
   const record = value as DetectionResponse
-  const verdict = record.verdict ?? record.prediction ?? record.label ?? record.classification
+  const verdict = record.verdict ?? record.prediction ?? record.label ?? record.classification ??
+    (typeof record.detection === "string" ? record.detection : undefined)
   if (typeof verdict === "string") return record
   const spamFlag = record.is_spam ?? record.isSpam ?? record.is_scam ?? record.isScam
   if (typeof spamFlag === "boolean") {
@@ -483,7 +484,8 @@ export function normalizeTrinetraDetection(
   const result = findDetectionResult(payload)
   if (!result) return null
 
-  const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification
+  const verdictValue = result.verdict ?? result.prediction ?? result.label ?? result.classification ??
+    (typeof result.detection === "string" ? result.detection : undefined)
   if (typeof verdictValue !== "string") return null
   const verdict = verdictValue.trim().toUpperCase().replace(/[\s-]+/g, "_")
   const prediction = ["FAKE", "FRAUD", "FRAUDULENT", "UNSAFE", "MALICIOUS", "PHISHING", "SPAM"].includes(verdict)

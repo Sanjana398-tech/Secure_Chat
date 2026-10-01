@@ -38,6 +38,8 @@ describe("Trinetra result display", () => {
       trinetraExplanation: "Payment indicators resemble a scam.",
       trinetraTips: ["Verify the recipient before paying."],
       trinetraUnavailable: false,
+      trinetraOpenedAt: null,
+      trinetraLocked: false,
     } satisfies Message
 
     const html = renderToStaticMarkup(
@@ -47,6 +49,7 @@ describe("Trinetra result display", () => {
         isLastInRun
         language="en"
         voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
       />,
     )
 
@@ -62,6 +65,7 @@ describe("Trinetra result display", () => {
         isLastInRun
         language="en"
         voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
       />,
     )
 
@@ -102,6 +106,8 @@ describe("Trinetra result display", () => {
       trinetraExplanation: "The message appears safe.",
       trinetraTips: ["Stay cautious with unexpected requests."],
       trinetraUnavailable: false,
+      trinetraOpenedAt: null,
+      trinetraLocked: false,
     } satisfies Message
 
     const html = renderToStaticMarkup(
@@ -111,12 +117,14 @@ describe("Trinetra result display", () => {
         isLastInRun
         language="en"
         voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
       />,
     )
 
     expect(html).toContain("The message appears safe.")
     expect(html).toContain("No suspicious pattern was detected.")
     expect(html).toContain("Stay cautious with unexpected requests.")
+    expect(html).not.toContain("Trinetra Protection Alert")
 
     for (const safeAlias of ["NOT_SPAM", "NOT SPAM", "HAM"]) {
       const safeAliasHtml = renderToStaticMarkup(
@@ -126,10 +134,83 @@ describe("Trinetra result display", () => {
           isLastInRun
           language="en"
           voiceAlertsEnabled={false}
+          onOpenProtectedMessage={async () => true}
         />,
       )
 
       expect(safeAliasHtml).toContain("Safe")
     }
+  })
+
+  it("hides a locked suspicious message until the receiver chooses to open it", () => {
+    const message = {
+      id: "message-locked",
+      conversationId: "conversation-1",
+      senderId: "sender-1",
+      receiverId: "receiver-1",
+      content: "Send your password immediately",
+      messageType: "text",
+      mediaUrl: null,
+      mediaDuration: null,
+      paymentAmount: null,
+      paymentUpiId: null,
+      paymentNote: null,
+      isRead: false,
+      readAt: null,
+      createdAt: new Date().toISOString(),
+      trinetraPrediction: "SUSPICIOUS",
+      trinetraConfidence: 91,
+      safeProbability: null,
+      scamProbability: null,
+      isFlagged: false,
+      analyzedAt: new Date().toISOString(),
+      trinetraTranscription: null,
+      trinetraOcrText: null,
+      trinetraDetectedUrls: [],
+      trinetraQrContent: null,
+      trinetraReasons: [],
+      trinetraLanguage: "en",
+      trinetraSpeechText: null,
+      trinetraDetectionType: "message",
+      trinetraRisk: 88,
+      trinetraExplanation: "Potentially harmful content.",
+      trinetraTips: [],
+      trinetraUnavailable: false,
+      trinetraOpenedAt: null,
+      trinetraLocked: true,
+    } satisfies Message
+
+    const html = renderToStaticMarkup(
+      <MessageBubble
+        message={message}
+        isOwn={false}
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
+      />,
+    )
+
+    expect(html).toContain("Trinetra Protection Alert")
+    expect(html).toContain("Open Message")
+    expect(html).toContain("Don&#x27;t Open")
+    expect(html).not.toContain("Send your password immediately")
+
+    const openedHtml = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          ...message,
+          trinetraOpenedAt: new Date().toISOString(),
+          trinetraLocked: false,
+        }}
+        isOwn={false}
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
+      />,
+    )
+    expect(openedHtml).toContain("Send your password immediately")
+    expect(openedHtml).not.toContain("Trinetra Protection Alert")
   })
 })

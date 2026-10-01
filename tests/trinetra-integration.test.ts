@@ -467,6 +467,17 @@ describe("Trinetra integration client", () => {
     })
   })
 
+  it("accepts a scalar detection field as the provider verdict", () => {
+    expect(normalizeTrinetraDetection({
+      success: true,
+      detection: "SPAM",
+      confidence: 93,
+    }, "message")).toMatchObject({
+      prediction: "SCAM",
+      confidence: 93,
+    })
+  })
+
   it("maps the provider's WARNING verdict to a visible suspicious result", () => {
     expect(normalizeTrinetraDetection({
       success: true,

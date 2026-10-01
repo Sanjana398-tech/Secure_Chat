@@ -76,6 +76,8 @@ export interface Message {
   trinetraExplanation: string | null
   trinetraTips: string[]
   trinetraUnavailable: boolean
+  trinetraOpenedAt: Date | string | null
+  trinetraLocked: boolean
 }
 
 /** Status shown on outgoing messages */
@@ -183,6 +185,12 @@ export interface NewMessageEvent {
   message: Message
 }
 
+export interface MessageProtectionUpdatedEvent {
+  type: "message-protection-updated"
+  conversationId: string
+  message: Message
+}
+
 export interface MessageReadEvent {
   type: "message-read"
   conversationId: string
@@ -203,4 +211,9 @@ export interface PresenceEvent {
   lastSeen: string
 }
 
-export type RealtimePayload = NewMessageEvent | MessageReadEvent | TypingEvent | PresenceEvent
+export type RealtimePayload =
+  | NewMessageEvent
+  | MessageProtectionUpdatedEvent
+  | MessageReadEvent
+  | TypingEvent
+  | PresenceEvent

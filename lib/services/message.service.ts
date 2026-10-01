@@ -24,7 +24,7 @@
  * delivered normally (without analysis badges) — availability over blocking.
  */
 
-import { eq, and, desc } from "drizzle-orm"
+import { eq, and, desc, inArray } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { message, conversation } from "@/lib/db/schema"
 import { broadcast, conversationChannel, userChannel } from "@/lib/realtime"
@@ -58,6 +58,13 @@ function serializeMessage(saved: Message): Message {
       saved.readAt instanceof Date ? saved.readAt.toISOString() : saved.readAt,
     analyzedAt:
       saved.analyzedAt instanceof Date ? saved.analyzedAt.toISOString() : saved.analyzedAt,
+    trinetraOpenedAt:
+      saved.trinetraOpenedAt instanceof Date
+        ? saved.trinetraOpenedAt.toISOString()
+        : saved.trinetraOpenedAt,
+    trinetraLocked:
+      ["SCAM", "SUSPICIOUS"].includes(saved.trinetraPrediction?.toUpperCase() ?? "") &&
+      !saved.trinetraOpenedAt,
     trinetraDetectedUrls: parseJsonArray(saved.trinetraDetectedUrls),
     trinetraReasons: parseJsonArray(saved.trinetraReasons),
     trinetraTips: parseJsonArray(saved.trinetraTips),
@@ -177,6 +184,7 @@ async function saveMessage(processed: ProcessedMessage): Promise<Message> {
       trinetraExplanation: trinetra?.alert ?? trinetra?.explanation ?? null,
       trinetraTips: JSON.stringify(trinetra?.tips ?? []),
       trinetraUnavailable: processed.trinetraUnavailable ?? false,
+      trinetraOpenedAt: null,
     })
     .returning()
 
@@ -236,6 +244,32 @@ export async function getMessages(conversationId: string, limit = 50): Promise<M
     .limit(limit)
 
   return rows.reverse().map((row) => serializeMessage(row as unknown as Message))
+}
+
+export async function openProtectedMessage(
+  conversationId: string,
+  messageId: string,
+  userId: string,
+): Promise<Message> {
+  const [updated] = await db
+    .update(message)
+    .set({ trinetraOpenedAt: new Date() })
+    .where(and(
+      eq(message.id, messageId),
+      eq(message.conversationId, conversationId),
+      eq(message.receiverId, userId),
+      inArray(message.trinetraPrediction, ["SCAM", "SUSPICIOUS"]),
+    ))
+    .returning()
+
+  if (!updated) throw new Error("Protected message not found")
+
+  const openedMessage = serializeMessage(updated as unknown as Message)
+  await broadcast(
+    [conversationChannel(conversationId), userChannel(userId), userChannel(openedMessage.senderId)],
+    { type: "message-protection-updated", conversationId, message: openedMessage },
+  )
+  return openedMessage
 }
 
 /**

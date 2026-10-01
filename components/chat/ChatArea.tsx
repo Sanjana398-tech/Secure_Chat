@@ -151,6 +151,12 @@ export default function ChatArea({
         setIsTyping(false)
       }
     },
+    onProtectionUpdated: (event) => {
+      if (event.conversationId !== conversation.id) return
+      setMessages((prev) => prev.map((message) =>
+        message.id === event.message.id ? event.message : message,
+      ))
+    },
     onMessageRead: (event) => {
       if (event.conversationId !== conversation.id) return
       // Mark messages as read in the local state (update double-ticks)
@@ -179,6 +185,23 @@ export default function ChatArea({
       }
     },
   })
+
+  const handleOpenProtectedMessage = useCallback(async (messageId: string) => {
+    try {
+      const response = await fetch(
+        `/api/conversations/${conversation.id}/messages/${messageId}/protection`,
+        { method: "POST" },
+      )
+      const json = await response.json()
+      if (!response.ok || !json.data) return false
+      setMessages((prev) => prev.map((message) =>
+        message.id === messageId ? json.data as Message : message,
+      ))
+      return true
+    } catch {
+      return false
+    }
+  }, [conversation.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -221,6 +244,8 @@ export default function ChatArea({
         trinetraExplanation: null,
         trinetraTips: [],
         trinetraUnavailable: false,
+        trinetraOpenedAt: null,
+        trinetraLocked: false,
       }
       setMessages((prev) => [...prev, optimistic])
 
@@ -301,6 +326,7 @@ export default function ChatArea({
         bottomRef={bottomRef}
         language={language}
         voiceAlertsEnabled={voiceAlertsEnabled}
+        onOpenProtectedMessage={handleOpenProtectedMessage}
       />
 
       {/* Typing indicator */}
