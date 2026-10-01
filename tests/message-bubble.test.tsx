@@ -126,6 +126,19 @@ describe("Trinetra result display", () => {
     expect(html).toContain("Stay cautious with unexpected requests.")
     expect(html).not.toContain("Trinetra Protection Alert")
 
+    const receivedSafeHtml = renderToStaticMarkup(
+      <MessageBubble
+        message={message}
+        isOwn={false}
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
+      />,
+    )
+    expect(receivedSafeHtml).toContain("Trinetra Safe")
+    expect(receivedSafeHtml).toContain("See you tomorrow")
+
     for (const safeAlias of ["NOT_SPAM", "NOT SPAM", "HAM"]) {
       const safeAliasHtml = renderToStaticMarkup(
         <MessageBubble
@@ -195,6 +208,24 @@ describe("Trinetra result display", () => {
     expect(html).toContain("Open Message")
     expect(html).toContain("Don&#x27;t Open")
     expect(html).not.toContain("Send your password immediately")
+
+    const aliasedSpamHtml = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          ...message,
+          id: "message-spam-alias",
+          trinetraPrediction: "SPAM",
+          trinetraLocked: false,
+        }}
+        isOwn={false}
+        isLastInRun
+        language="en"
+        voiceAlertsEnabled={false}
+        onOpenProtectedMessage={async () => true}
+      />,
+    )
+    expect(aliasedSpamHtml).toContain("Trinetra Protection Alert")
+    expect(aliasedSpamHtml).not.toContain("Send your password immediately")
 
     const openedHtml = renderToStaticMarkup(
       <MessageBubble

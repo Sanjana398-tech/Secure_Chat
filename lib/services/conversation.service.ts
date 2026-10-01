@@ -10,6 +10,7 @@ import { db } from "@/lib/db"
 import { conversation, conversationParticipant, message, user } from "@/lib/db/schema"
 import type { Conversation, PublicUser } from "@/types"
 import { nanoid, isRecentlyOnline } from "@/lib/utils"
+import { isTrinetraProtectedPrediction } from "@/lib/trinetra-status"
 
 function toPublicUser(row: PublicUser): PublicUser {
   return {
@@ -146,8 +147,7 @@ export async function getUserConversations(userId: string): Promise<Conversation
         ? ({
             ...lastMessages[0],
             trinetraOpenedAt: lastMessages[0].trinetraOpenedAt?.toISOString() ?? null,
-            trinetraLocked:
-              ["SCAM", "SUSPICIOUS"].includes(lastMessages[0].trinetraPrediction?.toUpperCase() ?? "") &&
+            trinetraLocked: isTrinetraProtectedPrediction(lastMessages[0].trinetraPrediction) &&
               !lastMessages[0].trinetraOpenedAt,
             trinetraDetectedUrls: JSON.parse(lastMessages[0].trinetraDetectedUrls ?? "[]"),
             trinetraReasons: JSON.parse(lastMessages[0].trinetraReasons ?? "[]"),

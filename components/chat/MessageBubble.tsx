@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { Message } from "@/types"
 import { formatMessageTime } from "@/lib/utils"
+import { isTrinetraProtectedPrediction } from "@/lib/trinetra-status"
 import {
   getDetectionCopy,
   getSpeechAlert,
@@ -88,6 +89,8 @@ export default function MessageBubble({
   const isSafe = prediction === "SAFE" && !isScam
   const localizedPrediction =
     isScam ? "SCAM" : isSuspicious ? "SUSPICIOUS" : isSafe ? "SAFE" : null
+  const isLockedForReceiver =
+    !isOwn && isTrinetraProtectedPrediction(message.trinetraPrediction) && !message.trinetraOpenedAt
   const alertLanguage = language
   const copy = getDetectionCopy(alertLanguage)
   const whyCopy = getDetectionCopy(language)
@@ -180,24 +183,6 @@ export default function MessageBubble({
     return (
       <div className="flex flex-col gap-0.5">
         <div className={`flex items-center gap-1 mt-1 ${isOwn ? "justify-end" : "justify-start"}`}>
-          {isSafe && isAnalyzed && (
-            <span className="flex items-center gap-0.5 text-[10px] text-emerald-400 select-none">
-              <ShieldCheck className="size-3" />
-              {localizedPrediction && copy.result[localizedPrediction]}
-              {confidence != null && ` · ${confidence.toFixed(2)}% confidence`}
-              {message.trinetraRisk != null && ` · Risk ${message.trinetraRisk.toFixed(2)}%`}
-              <button
-                type="button"
-                onClick={replayAlert}
-                disabled={isSpeaking}
-                className="ml-1 inline-flex size-4 items-center justify-center rounded text-emerald-300 hover:bg-emerald-400/20 disabled:opacity-40"
-                aria-label={isSpeaking ? "Speaking…" : "Replay voice alert"}
-                title="Replay voice alert"
-              >
-                <span aria-hidden="true">{isSpeaking ? "⏳" : "🔊"}</span>
-              </button>
-            </span>
-          )}
           {isSuspicious && isAnalyzed && (
             <span className="flex items-center gap-0.5 text-[10px] text-amber-300 select-none">
               <ShieldAlert className="size-3" />
@@ -263,7 +248,18 @@ export default function MessageBubble({
     )
   }
 
-  if (!isOwn && message.trinetraLocked) {
+  function SafeResultStatus() {
+    if (!isSafe || !isAnalyzed) return null
+    return (
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-300" role="status">
+        <ShieldCheck className="size-3.5" />
+        <span>Trinetra Safe</span>
+        {confidence != null && <span className="font-normal opacity-80">{confidence.toFixed(2)}% confidence</span>}
+      </div>
+    )
+  }
+
+  if (isLockedForReceiver) {
     return (
       <div className="flex items-end gap-1.5 flex-row">
         <div className="size-6 flex-shrink-0" />
@@ -397,6 +393,7 @@ export default function MessageBubble({
         {/* ── IMAGE bubble ────────────────────────────────────────────── */}
         {message.messageType === "image" && message.mediaUrl && (
           <div className={`${bubbleBase} p-1.5`}>
+            <SafeResultStatus />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={message.mediaUrl}
@@ -482,6 +479,7 @@ export default function MessageBubble({
         {/* ── VOICE bubble ────────────────────────────────────────────── */}
         {message.messageType === "voice" && message.mediaUrl && (
           <div className={`${bubbleBase} min-w-[200px]`}>
+            <SafeResultStatus />
             <div className="flex items-center gap-2">
               <Mic className="size-4 flex-shrink-0 opacity-70" />
               <audio
@@ -510,6 +508,7 @@ export default function MessageBubble({
         {/* ── PAYMENT bubble ──────────────────────────────────────────── */}
         {message.messageType === "payment" && (
           <div className={`${bubbleBase} min-w-[220px]`}>
+            <SafeResultStatus />
             <div className="flex items-center gap-2 mb-2">
               <div className="flex items-center justify-center size-8 rounded-full bg-emerald-500/20 flex-shrink-0">
                 <IndianRupee className="size-4 text-emerald-400" />
@@ -541,6 +540,7 @@ export default function MessageBubble({
         {/* ── URL bubble (dedicated link card, Trinetra /api/analyze-url) ─ */}
         {message.messageType === "url" && message.content && (
           <div className={bubbleBase}>
+            <SafeResultStatus />
             <a
               href={message.content.trim()}
               target="_blank"
@@ -559,6 +559,7 @@ export default function MessageBubble({
         {(message.messageType === "text" || (!message.messageType && message.content)) &&
           message.content && (
             <div className={bubbleBase}>
+              <SafeResultStatus />
               <p className="whitespace-pre-wrap break-words">
                 {renderTextWithLinks(message.content)}
               </p>
@@ -586,12 +587,6 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* ── SAFE verification sub-line ──────────────────────────────── */}
-        {isSafe && isAnalyzed && (
-          <span className="text-[10px] text-emerald-500/70 px-1 select-none">
-            {copy.verified}
-          </span>
-        )}
       </div>
     </div>
   )

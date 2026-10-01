@@ -36,6 +36,7 @@ import {
 } from "@/lib/services/trinetra-integration.service"
 import type { MessageInput, ProcessedMessage, Message } from "@/types"
 import { nanoid } from "@/lib/utils"
+import { isTrinetraProtectedPrediction, TRINETRA_PROTECTED_PREDICTIONS } from "@/lib/trinetra-status"
 
 function parseJsonArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string")
@@ -63,9 +64,7 @@ function serializeMessage(saved: Message): Message {
       saved.trinetraOpenedAt instanceof Date
         ? saved.trinetraOpenedAt.toISOString()
         : saved.trinetraOpenedAt,
-    trinetraLocked:
-      ["SCAM", "SUSPICIOUS"].includes(saved.trinetraPrediction?.toUpperCase() ?? "") &&
-      !saved.trinetraOpenedAt,
+    trinetraLocked: isTrinetraProtectedPrediction(saved.trinetraPrediction) && !saved.trinetraOpenedAt,
     trinetraDetectedUrls: parseJsonArray(saved.trinetraDetectedUrls),
     trinetraReasons: parseJsonArray(saved.trinetraReasons),
     trinetraTips: parseJsonArray(saved.trinetraTips),
@@ -302,7 +301,7 @@ export async function openProtectedMessage(
       eq(message.id, messageId),
       eq(message.conversationId, conversationId),
       eq(message.receiverId, userId),
-      inArray(message.trinetraPrediction, ["SCAM", "SUSPICIOUS"]),
+      inArray(message.trinetraPrediction, TRINETRA_PROTECTED_PREDICTIONS),
     ))
     .returning()
 
