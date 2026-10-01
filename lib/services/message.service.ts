@@ -134,7 +134,7 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
   try {
     if (detectionType) {
       const protection = await getTrinetraProtectionStatus(input.senderId, true)
-        protectionEnabled = protection.enabled
+      protectionEnabled = protection.enabled
       if (protection.enabled) {
         if (!protection.linked) {
           unavailable = true
@@ -178,14 +178,14 @@ async function processMessage(input: MessageInput): Promise<ProcessedMessage> {
       }
     }
   } catch (err) {
-
-      if (protectionEnabled || result || unavailable) {
-        console.info(
-          `[message.service] TRINETRA_ANALYSIS type=${detectionType ? detectionType === "message" ? "TEXT" : detectionType.toUpperCase() : trinetraTypeLabel(input.messageType)} classification=${result?.prediction ?? "NONE"} scan_id_present=${Boolean(result?.scanId)} protected=${Boolean(result && isTrinetraProtectedPrediction(result.prediction))} unavailable=${unavailable}`,
-        )
-      }
     unavailable = result === null
     console.warn("[message.service] Trinetra analysis unavailable:", (err as Error).message)
+  }
+
+  if (protectionEnabled || result || unavailable) {
+    console.info(
+      `[message.service] TRINETRA_ANALYSIS type=${detectionType ? detectionType === "message" ? "TEXT" : detectionType.toUpperCase() : trinetraTypeLabel(input.messageType)} classification=${result?.prediction ?? "NONE"} scan_id_present=${Boolean(result?.scanId)} protected=${Boolean(result && isTrinetraProtectedPrediction(result.prediction))} unavailable=${unavailable}`,
+    )
   }
 
   return {
