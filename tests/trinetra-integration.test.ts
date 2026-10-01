@@ -146,6 +146,8 @@ describe("Trinetra integration client", () => {
     expect(row.encryptedAccessToken).not.toContain("account-token-for-test")
     expect(row.linkedAccountId).toBe("trinetra-account-a")
     expect(row.accessTokenExpiresAt?.getTime()).toBeGreaterThan(Date.now())
+    expect(diagnosticMessages.some((line) => line.includes("TOKEN_REQUEST_STARTED endpoint=https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/token"))).toBe(true)
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] TOKEN_REQUEST_SUCCESS status=200 elapsed_ms=\d+$/.test(line))).toBe(true)
   })
 
   it("fails authorization when the final link update affects zero rows", async () => {
@@ -277,6 +279,7 @@ describe("Trinetra integration client", () => {
       .rejects.toThrow("TRINETRA_CONFIG_MISSING")
 
     expect(diagnosticMessages).toContain("[trinetra] TRINETRA_CONFIG_MISSING")
+    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_CONFIG_MISSING variables=TRINETRA_SECURE_CHAT_API_KEY")
     expect(mocks.fetch).not.toHaveBeenCalled()
   })
 
@@ -312,6 +315,7 @@ describe("Trinetra integration client", () => {
     await expect(analyzeTrinetraContent("account-a", "message", "hello"))
       .rejects.toThrow("TRINETRA_TIMEOUT")
     expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TIMEOUT after=1000ms")
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_TIMEOUT elapsed_ms=\d+ timeout_ms=1000$/.test(line))).toBe(true)
   })
 
   it("diagnoses malformed provider JSON", async () => {
@@ -336,6 +340,8 @@ describe("Trinetra integration client", () => {
     const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
     expect(requestBody).toMatchObject({ type: "TEXT", text: "hello" })
     expect(requestBody).not.toHaveProperty("content")
+    expect(diagnosticMessages.some((line) => line.includes("DETECT_REQUEST_STARTED endpoint=https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect") && line.includes("detection_type=TEXT"))).toBe(true)
+    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_SUCCESS status=200 elapsed_ms=\d+$/.test(line))).toBe(true)
   })
 
   it.each([

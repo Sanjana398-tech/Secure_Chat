@@ -129,7 +129,12 @@ function getConfig() {
   const apiKey = process.env.TRINETRA_SECURE_CHAT_API_KEY?.trim()
   const redirectUri = process.env.TRINETRA_REDIRECT_URI?.trim()
 
+  const missingVariables = [
+    !apiKey && "TRINETRA_SECURE_CHAT_API_KEY",
+    !redirectUri && "TRINETRA_REDIRECT_URI",
+  ].filter((name): name is string => Boolean(name))
   if (!apiKey || !redirectUri) {
+    reportDiagnostic(`TRINETRA_CONFIG_MISSING variables=${missingVariables.join(",")}`)
     configurationFailure("TRINETRA_CONFIG_MISSING")
   }
 
@@ -317,18 +322,35 @@ async function requestJson(
   url: string,
   init: RequestInit,
   requestTimeoutMs: number,
+  requestKind: "TOKEN" | "DETECT",
+  detectionType?: "TEXT" | "URL" | "UPI" | "IMAGE" | "VOICE" | "QR",
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> | null }> {
+  const startedAt = Date.now()
+  const endpoint = new URL(url)
+  reportDiagnostic(
+    `${requestKind}_REQUEST_STARTED endpoint=${endpoint.origin}${endpoint.pathname} timeout_ms=${requestTimeoutMs}${detectionType ? ` detection_type=${detectionType}` : ""}`,
+  )
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
   try {
     const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" })
-    if (!response.ok) reportDiagnostic(`TRINETRA_HTTP_ERROR status=${response.status}`)
     const text = await response.text()
-    if (text.length > 64 * 1024) return { ok: response.ok, status: response.status, body: null }
+    const elapsedMs = Date.now() - startedAt
+    if (!response.ok) {
+      reportDiagnostic(`TRINETRA_HTTP_ERROR status=${response.status}`)
+      reportDiagnostic(`${requestKind}_REQUEST_HTTP_ERROR status=${response.status} elapsed_ms=${elapsedMs}`)
+    } else {
+      reportDiagnostic(`${requestKind}_REQUEST_SUCCESS status=${response.status} elapsed_ms=${elapsedMs}`)
+    }
+    if (text.length > 64 * 1024) {
+      reportDiagnostic(`${requestKind}_REQUEST_RESPONSE_TOO_LARGE status=${response.status} elapsed_ms=${elapsedMs}`)
+      return { ok: response.ok, status: response.status, body: null }
+    }
     let body: unknown
     try {
       body = JSON.parse(text)
     } catch {
+      reportDiagnostic(`${requestKind}_REQUEST_INVALID_JSON status=${response.status} elapsed_ms=${elapsedMs}`)
       return { ok: response.ok, status: response.status, body: null }
     }
     return {
@@ -340,9 +362,12 @@ async function requestJson(
     }
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      const elapsedMs = Date.now() - startedAt
+      reportDiagnostic(`${requestKind}_REQUEST_TIMEOUT elapsed_ms=${elapsedMs} timeout_ms=${requestTimeoutMs}`)
       reportDiagnostic(`TRINETRA_TIMEOUT after=${requestTimeoutMs}ms`)
       throw new Error("TRINETRA_TIMEOUT")
     }
+    reportDiagnostic(`${requestKind}_REQUEST_NETWORK_ERROR elapsed_ms=${Date.now() - startedAt}`)
     reportDiagnostic("TRINETRA_NETWORK_ERROR")
     throw new Error("TRINETRA_NETWORK_ERROR")
   } finally {
@@ -398,6 +423,7 @@ export async function completeTrinetraAuthorization(
       body: JSON.stringify({ code, redirect_uri: redirectUri }),
     },
     requestTimeout(),
+    "TOKEN",
   )
   const tokenResponse = response.body as TokenResponse | null
   const token = tokenResponse?.access_token ?? tokenResponse?.account_token
@@ -757,6 +783,8 @@ export async function analyzeTrinetraContent(
       }),
     },
     requestTimeout(),
+    "DETECT",
+    ({ message: "TEXT", url: "URL", upi: "UPI", qr: "QR" } as const)[type],
   )
   if (!response.body) {
     reportDiagnostic("TRINETRA_INVALID_RESPONSE")
@@ -802,6 +830,8 @@ export async function analyzeTrinetraMedia(
       body: form,
     },
     requestTimeout(),
+    "DETECT",
+    type === "image" ? "IMAGE" : "VOICE",
   )
 
   if (!response.body) {
