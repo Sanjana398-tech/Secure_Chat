@@ -365,12 +365,9 @@ describe("Trinetra integration client", () => {
         : "sample content"
     await analyzeTrinetraContent("account-a", type, content)
 
-    const path = type === "url"
-      ? "/api/analyze-url"
-      : type === "upi"
-        ? "/api/analyze-upi"
-        : "/api/secure-chat/v1/detect"
-    expect(String(mocks.fetch.mock.calls[0][0])).toBe(`https://trinetra-ai-ua5e.onrender.com${path}`)
+    expect(String(mocks.fetch.mock.calls[0][0])).toBe(
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
+    )
     const requestBody = JSON.parse(mocks.fetch.mock.calls[0][1].body as string)
     expect(requestBody.type).toBe(apiType)
     if (type === "url") {
@@ -400,9 +397,9 @@ describe("Trinetra integration client", () => {
       stream: new Blob(["actual image bytes"]).stream(),
     })
     mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      success: true,
-      prediction: "SCAM",
+      classification: "SCAM",
       confidence: 94,
+      risk_score: 94,
       scan_id: 321,
       ocr_text: "Approve the urgent payment",
       detected_urls: ["https://example.test/pay"],
@@ -423,8 +420,9 @@ describe("Trinetra integration client", () => {
     const form = options.body as FormData
     const uploadedImage = form.get("image") as File
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
-      "https://trinetra-ai-ua5e.onrender.com/api/analyze-screenshot",
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
+    expect(form.get("type")).toBe("IMAGE")
     expect(uploadedImage.name).toBe("0123456789abcdef0123456789abcdef.png")
     expect(uploadedImage.type).toBe("image/png")
     expect(await uploadedImage.text()).toBe("actual image bytes")
@@ -447,8 +445,7 @@ describe("Trinetra integration client", () => {
       stream: new Blob(["actual QR image bytes"]).stream(),
     })
     mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      success: true,
-      prediction: "SCAM",
+      classification: "SCAM",
       scan_id: 322,
       risk_score: 94,
       decoded_content: "upi://pay?pa=merchant@bank",
@@ -470,15 +467,14 @@ describe("Trinetra integration client", () => {
     expect(mocks.fetch).toHaveBeenCalledOnce()
   })
 
-  it("sends the actual voice bytes to Whisper and classifies its transcript", async () => {
+  it("sends the actual voice bytes through unified detection and classifies the result", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     mocks.getBlob.mockResolvedValue({
       blob: { contentType: "audio/webm" },
       stream: new Blob(["actual audio bytes"]).stream(),
     })
     mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      success: true,
-      prediction: "SUSPICIOUS",
+      classification: "SUSPICIOUS",
       confidence: 91,
       scan_id: 323,
       transcription: "Send your account password now",
@@ -494,8 +490,9 @@ describe("Trinetra integration client", () => {
     const form = mocks.fetch.mock.calls[0][1].body as FormData
     const uploadedAudio = form.get("audio") as File
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
-      "https://trinetra-ai-ua5e.onrender.com/api/analyze-voice",
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
+    expect(form.get("type")).toBe("VOICE")
     expect(uploadedAudio.name).toBe("0123456789abcdef0123456789abcdef.webm")
     expect(uploadedAudio.type).toBe("audio/webm")
     expect(await uploadedAudio.text()).toBe("actual audio bytes")
@@ -506,15 +503,14 @@ describe("Trinetra integration client", () => {
     })
   })
 
-  it("uses the screenshot endpoint's persisted verdict and OCR response", async () => {
+  it("uses the unified image classification and OCR response", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     mocks.getBlob.mockResolvedValue({
       blob: { contentType: "image/jpeg" },
       stream: new Blob(["actual image bytes"]).stream(),
     })
     mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      success: true,
-      prediction: "SCAM",
+      classification: "SCAM",
       confidence: 96,
       scan_id: 324,
       ocr_text: "Your account is blocked; pay now",
@@ -527,8 +523,9 @@ describe("Trinetra integration client", () => {
     )
 
     expect(String(mocks.fetch.mock.calls[0][0])).toBe(
-      "https://trinetra-ai-ua5e.onrender.com/api/analyze-screenshot",
+      "https://trinetra-ai-ua5e.onrender.com/api/secure-chat/v1/detect",
     )
+    expect((mocks.fetch.mock.calls[0][1].body as FormData).get("type")).toBe("IMAGE")
     expect(mocks.fetch).toHaveBeenCalledOnce()
     expect(analysis.result).toMatchObject({
       prediction: "SCAM",
@@ -545,8 +542,7 @@ describe("Trinetra integration client", () => {
       stream: new Blob(["actual image bytes"]).stream(),
     })
     mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      success: true,
-      prediction: "SAFE",
+      classification: "SAFE",
       confidence: 97,
       scan_id: 325,
       ocr_text: "receipt",

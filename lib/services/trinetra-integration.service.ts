@@ -765,13 +765,8 @@ export async function analyzeTrinetraContent(
   } else {
     typePayload = { text: content }
   }
-  const endpoint = type === "url"
-    ? "/api/analyze-url"
-    : type === "upi"
-      ? "/api/analyze-upi"
-      : "/api/secure-chat/v1/detect"
   const response = await requestJson(
-    `${credentials.baseUrl}${endpoint}`,
+    `${credentials.baseUrl}/api/secure-chat/v1/detect`,
     {
       method: "POST",
       headers: {
@@ -821,12 +816,12 @@ export async function analyzeTrinetraMedia(
   const form = new FormData()
   const mediaField = type === "image" ? "image" : "audio"
   form.append(mediaField, new Blob([new Uint8Array(media.buffer)], { type: media.contentType }), media.filename)
+  form.append("type", type === "image" ? "IMAGE" : "VOICE")
   if (credentials.linkedAccountId) form.append("user_id", credentials.linkedAccountId)
   if (language) form.append("language", language)
 
-  const endpoint = type === "image" ? "/api/analyze-screenshot" : "/api/analyze-voice"
   const response = await requestJson(
-    `${credentials.baseUrl}${endpoint}`,
+    `${credentials.baseUrl}/api/secure-chat/v1/detect`,
     {
       method: "POST",
       headers: {
