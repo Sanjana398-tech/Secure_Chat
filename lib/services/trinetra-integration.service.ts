@@ -321,7 +321,6 @@ export async function cancelTrinetraAuthorization(userId: string, state: string)
 async function requestJson(
   url: string,
   init: RequestInit,
-  requestTimeoutMs: number,
   requestKind: "TOKEN" | "DETECT",
   detectionType?: "TEXT" | "URL" | "UPI" | "IMAGE" | "VOICE" | "QR",
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> | null }> {
@@ -329,12 +328,10 @@ async function requestJson(
   const endpoint = new URL(url)
   const typeTag = detectionType ? ` detection_type=${detectionType}` : ""
   reportDiagnostic(
-    `${requestKind}_REQUEST_STARTED endpoint=${endpoint.origin}${endpoint.pathname} timeout_ms=${requestTimeoutMs}${typeTag}`,
+    `${requestKind}_REQUEST_STARTED endpoint=${endpoint.origin}${endpoint.pathname}${typeTag}`,
   )
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" })
+    const response = await fetch(url, { ...init, cache: "no-store" })
     const text = await response.text()
     const elapsedMs = Date.now() - startedAt
     if (!response.ok) {
@@ -362,23 +359,10 @@ async function requestJson(
         : null,
     }
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      const elapsedMs = Date.now() - startedAt
-      reportDiagnostic(`${requestKind}_REQUEST_TIMEOUT${typeTag} elapsed_ms=${elapsedMs} timeout_ms=${requestTimeoutMs}`)
-      reportDiagnostic(`TRINETRA_TIMEOUT after=${requestTimeoutMs}ms`)
-      throw new Error("TRINETRA_TIMEOUT")
-    }
     reportDiagnostic(`${requestKind}_REQUEST_NETWORK_ERROR${typeTag} elapsed_ms=${Date.now() - startedAt}`)
     reportDiagnostic("TRINETRA_NETWORK_ERROR")
     throw new Error("TRINETRA_NETWORK_ERROR")
-  } finally {
-    clearTimeout(timeout)
   }
-}
-
-function requestTimeout(): number {
-  const configured = Number(process.env.TRINETRA_TIMEOUT_MS ?? 90_000)
-  return Number.isFinite(configured) ? Math.max(1000, Math.min(configured, 90_000)) : 90_000
 }
 
 export async function completeTrinetraAuthorization(
@@ -423,7 +407,6 @@ export async function completeTrinetraAuthorization(
       },
       body: JSON.stringify({ code, redirect_uri: redirectUri }),
     },
-    requestTimeout(),
     "TOKEN",
   )
   const tokenResponse = response.body as TokenResponse | null
@@ -792,7 +775,6 @@ export async function analyzeTrinetraContent(
         ...(language ? { language } : {}),
       }),
     },
-    requestTimeout(),
     "DETECT",
     ({ message: "TEXT", url: "URL", upi: "UPI", qr: "QR" } as const)[type],
   )
@@ -842,7 +824,6 @@ export async function analyzeTrinetraMedia(
       },
       body: form,
     },
-    requestTimeout(),
     "DETECT",
     type === "image" ? "IMAGE" : "VOICE",
   )

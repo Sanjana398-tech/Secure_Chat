@@ -305,17 +305,17 @@ describe("Trinetra integration client", () => {
     expect(diagnosticMessages.join(" ")).not.toContain("secret-bearing transport detail")
   })
 
-  it("reports provider timeouts separately from network failures", async () => {
+  it("does not abort Trinetra requests using the legacy timeout setting", async () => {
     mocks.rows.set("account-a", linkedRow("account-a", encryptTestToken("test-account-token")))
     process.env.TRINETRA_TIMEOUT_MS = "1000"
-    mocks.fetch.mockImplementation((_input, init) => new Promise((_resolve, reject) => {
-      init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
-    }))
+    mocks.fetch.mockImplementation(async (_input, init) => {
+      expect(init.signal).toBeUndefined()
+      return new Response(JSON.stringify({ success: true, classification: "SAFE" }), { status: 200 })
+    })
 
     await expect(analyzeTrinetraContent("account-a", "message", "hello"))
-      .rejects.toThrow("TRINETRA_TIMEOUT")
-    expect(diagnosticMessages).toContain("[trinetra] TRINETRA_TIMEOUT after=1000ms")
-    expect(diagnosticMessages.some((line) => /^\[trinetra\] DETECT_REQUEST_TIMEOUT detection_type=TEXT elapsed_ms=\d+ timeout_ms=1000$/.test(line))).toBe(true)
+      .resolves.toMatchObject({ prediction: "SAFE" })
+    expect(diagnosticMessages.some((line) => line.includes("REQUEST_TIMEOUT"))).toBe(false)
   })
 
   it("diagnoses malformed provider JSON", async () => {

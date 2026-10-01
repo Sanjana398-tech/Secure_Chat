@@ -12,8 +12,6 @@ Configure these server-side variables in local `.env.local` and the Vercel proje
 | `TRINETRA_SECURE_CHAT_API_KEY` | Server-to-server integration key issued by Trinetra |
 | `TRINETRA_REDIRECT_URI` | `https://<Secure Chat domain>/api/integrations/trinetra/callback` |
 | `TRINETRA_TOKEN_ENCRYPTION_KEY` | Base64-encoded 32-byte key (or 64 hex characters) for token encryption at rest |
-| `TRINETRA_TIMEOUT_MS` | Optional provider timeout in milliseconds; defaults to `90000` to allow for Render cold starts |
-
 For local development, set the redirect URI to `http://localhost:3000/api/integrations/trinetra/callback` and register that exact URI with Trinetra. After deploying the schema changes, run `pnpm db:push` with the unpooled database URL configured. Suspicious and scam messages arrive locked for the receiver; opening one is saved so it stays open after refresh. Provider outages and invalid responses never block message delivery; the affected message displays a small unavailable status instead of a fabricated result.
 
 ## Folder Structure
